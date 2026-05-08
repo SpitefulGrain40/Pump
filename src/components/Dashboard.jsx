@@ -13,7 +13,7 @@ import WorkoutLogger from './WorkoutLogger';
 export default function Dashboard({ onNavigate }) {
   const { profile, getDaysToGoal, getProgress, getCalorieTarget, getProteinTarget } = useUserProfile();
   const { getTodaysTotals, getTodaysMeals, removeMeal } = useNutritionLogs();
-  const { getWorkoutForDate, getWorkoutTemplate } = useWorkoutSchedule();
+  const { schedule, getWorkoutForDate, getWorkoutTemplate } = useWorkoutSchedule();
   const { getTodaysWorkout } = useWorkoutLogs();
   const { getLatestWeight } = useWeightHistory();
   const { exportData, needsBackupReminder } = useBackup();
@@ -53,10 +53,16 @@ export default function Dashboard({ onNavigate }) {
 
   const todaysTotals = getTodaysTotals();
   const todaysMeals = getTodaysMeals();
-  const calorieTarget = getCalorieTarget() || 2300;
-  const proteinTarget = getProteinTarget() || 180;
   const daysToGoal = getDaysToGoal() || 0;
   const progress = getProgress() || 0;
+
+  // Get today's schedule-specific targets, fall back to profile defaults
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const todaySchedule = schedule[todayStr];
+  const defaultCalorieTarget = getCalorieTarget() || 2300;
+  const defaultProteinTarget = getProteinTarget() || 180;
+  const calorieTarget = todaySchedule?.calories || defaultCalorieTarget;
+  const proteinTarget = todaySchedule?.protein || defaultProteinTarget;
 
   const todayWorkoutType = getWorkoutForDate(new Date());
   const todayTemplate = todayWorkoutType ? getWorkoutTemplate(todayWorkoutType) : null;
@@ -69,16 +75,22 @@ export default function Dashboard({ onNavigate }) {
   const proteinPercent = proteinTarget ? Math.min((todaysTotals.protein / proteinTarget) * 100, 100) : 0;
 
   const getCalorieColor = () => {
-    if (!profile.calorieTarget?.min) return 'text-text';
-    if (todaysTotals.calories < profile.calorieTarget.min) return 'text-info';
-    if (todaysTotals.calories <= profile.calorieTarget.max) return 'text-accent';
+    // Use schedule-specific target, then profile min/max, then default
+    const targetMax = todaySchedule?.calories || profile.calorieTarget?.max || calorieTarget;
+    const targetMin = todaySchedule?.calories ? targetMax - 200 : profile.calorieTarget?.min;
+
+    if (!targetMin) return 'text-text';
+    if (todaysTotals.calories < targetMin) return 'text-info';
+    if (todaysTotals.calories <= targetMax) return 'text-accent';
     return 'text-danger';
   };
 
   const getProteinColor = () => {
-    if (!profile.proteinTarget?.min) return 'text-text';
-    if (todaysTotals.protein >= profile.proteinTarget.min) return 'text-accent';
-    if (todaysTotals.protein >= profile.proteinTarget.min * 0.8) return 'text-warning';
+    // Use schedule-specific target, then profile min
+    const targetMin = todaySchedule?.protein || profile.proteinTarget?.min;
+    if (!targetMin) return 'text-text';
+    if (todaysTotals.protein >= targetMin) return 'text-accent';
+    if (todaysTotals.protein >= targetMin * 0.8) return 'text-warning';
     return 'text-text-muted';
   };
 
@@ -239,7 +251,7 @@ export default function Dashboard({ onNavigate }) {
           <div className="w-full bg-border rounded-full h-1.5">
             <div
               className={`h-1.5 rounded-full transition-all ${
-                profile.calorieTarget?.max && todaysTotals.calories > profile.calorieTarget.max ? 'bg-danger' : 'bg-warning'
+                todaysTotals.calories > calorieTarget ? 'bg-danger' : 'bg-warning'
               }`}
               style={{ width: `${caloriePercent}%` }}
             />

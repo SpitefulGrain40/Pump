@@ -382,18 +382,20 @@ When the user wants to log or update data, include these commands in your respon
 - Update profile: [UPDATE_PROFILE: {"fieldName": "value"}]
 
 ### Schedule Commands
-Set full day schedule with lunch/evening sessions, calories, and notes:
+Set full day schedule with lunch/evening sessions, calories, protein, and notes:
 [SET_SCHEDULE: {
   "2026-05-08": {
     "lunch": {"type": "push", "notes": "Gym: Push + SB Strength"},
     "evening": {"type": "rest", "notes": "50g Protein Dinner"},
     "calories": 2300,
+    "protein": 180,
     "notes": "Bed by 11:30pm"
   },
   "2026-05-09": {
     "lunch": {"type": "bike", "notes": "20m HIIT Intervals"},
     "evening": {"type": "skate", "notes": "Garage session"},
     "calories": 2400,
+    "protein": 190,
     "notes": "Kitchen closed 9pm"
   }
 }]
@@ -407,7 +409,8 @@ Activity types:
 When creating schedules, include:
 - lunch.type and lunch.notes for the main daytime session
 - evening.type and evening.notes for evening activity
-- calories target for the day (from template)
+- calories target for the day (from template or adjusted)
+- protein target for the day (from template or adjusted)
 - notes for daily standards (sleep time, kitchen rules, Nyxie/Solo, etc.)
 
 ## FORMATTING RULES
