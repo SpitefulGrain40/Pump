@@ -60,6 +60,8 @@ export function useSettings() {
 }
 
 export function useBackup() {
+  const [lastBackup, setLastBackup] = useLocalStorage('pump-last-backup', null);
+
   const exportData = () => {
     const data = {
       version: 1,
@@ -70,6 +72,7 @@ export function useBackup() {
       nutritionLogs: localStorage.getItem('pump-nutrition-logs'),
       workoutLogs: localStorage.getItem('pump-workout-logs'),
       workoutSchedule: localStorage.getItem('pump-workout-schedule'),
+      completedWorkouts: localStorage.getItem('pump-completed-workouts'),
       prs: localStorage.getItem('pump-prs'),
       chatHistory: localStorage.getItem('pump-chat-history'),
     };
@@ -81,6 +84,8 @@ export function useBackup() {
     a.download = `pump-backup-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
+
+    setLastBackup(new Date().toISOString());
   };
 
   const importData = async (file) => {
@@ -97,6 +102,7 @@ export function useBackup() {
           if (data.nutritionLogs) localStorage.setItem('pump-nutrition-logs', data.nutritionLogs);
           if (data.workoutLogs) localStorage.setItem('pump-workout-logs', data.workoutLogs);
           if (data.workoutSchedule) localStorage.setItem('pump-workout-schedule', data.workoutSchedule);
+          if (data.completedWorkouts) localStorage.setItem('pump-completed-workouts', data.completedWorkouts);
           if (data.prs) localStorage.setItem('pump-prs', data.prs);
           if (data.chatHistory) localStorage.setItem('pump-chat-history', data.chatHistory);
 
@@ -119,11 +125,21 @@ export function useBackup() {
       'pump-nutrition-logs',
       'pump-workout-logs',
       'pump-workout-schedule',
+      'pump-completed-workouts',
       'pump-prs',
       'pump-chat-history',
+      'pump-last-backup',
     ];
     keys.forEach((key) => localStorage.removeItem(key));
   };
 
-  return { exportData, importData, clearAllData };
+  const needsBackupReminder = () => {
+    if (!lastBackup) return true;
+    const daysSinceBackup = Math.floor(
+      (Date.now() - new Date(lastBackup).getTime()) / (1000 * 60 * 60 * 24)
+    );
+    return daysSinceBackup >= 7;
+  };
+
+  return { exportData, importData, clearAllData, lastBackup, needsBackupReminder };
 }

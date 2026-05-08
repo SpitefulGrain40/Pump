@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Target, Flame, Beef, Dumbbell, Plus, Scale, MessageCircle, UserCircle, ChevronRight, Trash2 } from 'lucide-react';
+import { Target, Flame, Beef, Dumbbell, Plus, Scale, MessageCircle, UserCircle, ChevronRight, Trash2, Download, X } from 'lucide-react';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useWorkoutSchedule, useWorkoutLogs } from '../hooks/useWorkoutLogs';
 import { useWeightHistory } from '../hooks/useWeightHistory';
+import { useBackup } from '../hooks/useSettings';
 import { format } from 'date-fns';
 import WeightModal from './WeightModal';
 import MealLogger from './MealLogger';
@@ -15,10 +16,12 @@ export default function Dashboard({ onNavigate }) {
   const { getWorkoutForDate, getWorkoutTemplate } = useWorkoutSchedule();
   const { getTodaysWorkout } = useWorkoutLogs();
   const { getLatestWeight } = useWeightHistory();
+  const { exportData, needsBackupReminder } = useBackup();
 
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [showMealLogger, setShowMealLogger] = useState(false);
   const [showWorkoutLogger, setShowWorkoutLogger] = useState(false);
+  const [backupDismissed, setBackupDismissed] = useState(false);
 
   const isOnboarded = profile.onboardingComplete;
 
@@ -96,6 +99,36 @@ export default function Dashboard({ onNavigate }) {
           <span className="font-medium">{currentWeight} kg</span>
         </button>
       </header>
+
+      {/* Backup Reminder */}
+      {needsBackupReminder() && !backupDismissed && (
+        <div className="bg-warning/20 border border-warning/30 rounded-xl p-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Download size={20} className="text-warning" />
+            <div>
+              <div className="text-sm font-medium">Weekly backup reminder</div>
+              <div className="text-xs text-text-muted">Keep your data safe</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                exportData();
+                setBackupDismissed(true);
+              }}
+              className="bg-warning text-bg px-3 py-1.5 rounded-lg text-sm font-medium"
+            >
+              Backup
+            </button>
+            <button
+              onClick={() => setBackupDismissed(true)}
+              className="p-1.5 text-text-muted"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Goal Countdown */}
       {profile.targetWeight && profile.targetDate && (
