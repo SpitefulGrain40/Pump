@@ -11,6 +11,7 @@ export default function MealLogger({ onClose }) {
   const [items, setItems] = useState([{ name: '', calories: '', protein: '' }]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState(null);
+  const [photoAnalyzed, setPhotoAnalyzed] = useState(false);
 
   const handleAddItem = () => {
     setItems([...items, { name: '', calories: '', protein: '' }]);
@@ -48,6 +49,7 @@ export default function MealLogger({ onClose }) {
           calories: item.calories?.toString() || '',
           protein: item.protein?.toString() || '',
         })));
+        setPhotoAnalyzed(true);
       }
     } catch (err) {
       setError(err.message || 'Failed to analyze photo');
@@ -98,7 +100,7 @@ export default function MealLogger({ onClose }) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4 pb-24">
           {/* Photo buttons */}
           <div className="flex gap-2 mb-4">
             <button
@@ -140,8 +142,15 @@ export default function MealLogger({ onClose }) {
             </div>
           )}
 
+          {/* Photo analyzed success message */}
+          {photoAnalyzed && (
+            <div className="bg-accent/20 text-accent text-sm p-3 rounded-lg mb-4 flex items-center justify-between">
+              <span>Photo analyzed! Review items below.</span>
+            </div>
+          )}
+
           {/* Manual entry */}
-          <form onSubmit={handleSubmit} className="space-y-3">
+          <form id="meal-form" onSubmit={handleSubmit} className="space-y-3">
             {/* Header row */}
             <div className="grid grid-cols-12 gap-2 text-xs text-text-muted px-1">
               <div className="col-span-5">Item</div>
@@ -191,26 +200,30 @@ export default function MealLogger({ onClose }) {
               <Plus size={16} />
               Add item
             </button>
-
-            {/* Totals */}
-            <div className="border-t border-border pt-3 mt-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-text-muted">Total</span>
-                <span>
-                  <span className="font-medium">{totals.calories}</span> kcal ·{' '}
-                  <span className="font-medium">{totals.protein}</span>g protein
-                </span>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={items.every((i) => !i.name || !i.calories)}
-              className="w-full bg-accent text-bg py-3 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Log Meal
-            </button>
           </form>
+        </div>
+
+        {/* Fixed footer with totals and submit */}
+        <div className="absolute bottom-0 left-0 right-0 bg-surface border-t border-border p-4 rounded-b-2xl">
+          <div className="flex justify-between text-sm mb-3">
+            <span className="text-text-muted">Total</span>
+            <span>
+              <span className="font-medium">{totals.calories}</span> kcal ·{' '}
+              <span className="font-medium">{totals.protein}</span>g protein
+            </span>
+          </div>
+          <button
+            type="submit"
+            form="meal-form"
+            disabled={items.every((i) => !i.name || !i.calories)}
+            className={`w-full py-3 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
+              photoAnalyzed && !items.every((i) => !i.name || !i.calories)
+                ? 'bg-accent text-bg animate-pulse'
+                : 'bg-accent text-bg'
+            }`}
+          >
+            {photoAnalyzed ? 'Save Meal' : 'Log Meal'}
+          </button>
         </div>
       </div>
     </div>
