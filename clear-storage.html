@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Clear Pump Data</title>
+</head>
+<body style="background: #000; color: #0f0; font-family: monospace; padding: 20px;">
+  <h1>Clear Pump LocalStorage</h1>
+  <button onclick="clearPump()" style="padding: 20px 40px; font-size: 18px; cursor: pointer;">
+    Clear All Pump Data
+  </button>
+  <pre id="log"></pre>
+  <script>
+    function clearPump() {
+      const keys = [
+        'pump-user-profile',
+        'pump-ai-settings',
+        'pump-weight-history',
+        'pump-nutrition-logs',
+        'pump-workout-logs',
+        'pump-workout-schedule',
+        'pump-prs',
+        'pump-chat-history',
+      ];
+      keys.forEach(key => {
+        localStorage.removeItem(key);
+        document.getElementById('log').textContent += 'Removed: ' + key + '\n';
+      });
+      document.getElementById('log').textContent += '\nDone! Close this tab and refresh the app.';
+    }
+  </script>
+</body>
+</html>

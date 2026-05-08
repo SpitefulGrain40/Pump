@@ -1,0 +1,311 @@
+import { useMemo } from 'react';
+import { Line, Bar } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+} from 'chart.js';
+import { TrendingDown, Trophy, Flame, Calendar, Settings } from 'lucide-react';
+import { useWeightHistory } from '../hooks/useWeightHistory';
+import { useUserProfile } from '../hooks/useUserProfile';
+import { useWorkoutLogs, useWorkoutSchedule } from '../hooks/useWorkoutLogs';
+import { useNutritionLogs } from '../hooks/useNutritionLogs';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import { format, subDays, parseISO, isWithinInterval, startOfDay } from 'date-fns';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
+
+const chartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+  },
+  scales: {
+    x: {
+      grid: { color: '#1f1f1f' },
+      ticks: { color: '#a1a1aa', font: { size: 10 } },
+    },
+    y: {
+      grid: { color: '#1f1f1f' },
+      ticks: { color: '#a1a1aa', font: { size: 10 } },
+    },
+  },
+};
+
+export default function Progress({ onNavigate }) {
+  const { entries: weightEntries } = useWeightHistory();
+  const { profile, getProgress, getWeightLost } = useUserProfile();
+  const { getAllPRs } = useWorkoutLogs();
+  const { schedule } = useWorkoutSchedule();
+  const { getDailyTotals } = useNutritionLogs();
+  const [completedDays] = useLocalStorage('pump-completed-workouts', {});
+
+  const prs = getAllPRs();
+  const progress = getProgress();
+  const weightLost = getWeightLost();
+
+  const weightChartData = useMemo(() => {
+    const sorted = [...weightEntries].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const last14 = sorted.slice(-14);
+
+    return {
+      labels: last14.map((e) => format(parseISO(e.date), 'MMM d')),
+      datasets: [
+        {
+          label: 'Weight',
+          data: last14.map((e) => e.weight),
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34, 197, 94, 0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4,
+          pointBackgroundColor: '#22c55e',
+        },
+        {
+          label: 'Target',
+          data: last14.map(() => profile.targetWeight),
+          borderColor: '#3b82f6',
+          borderDash: [5, 5],
+          pointRadius: 0,
+        },
+      ],
+    };
+  }, [weightEntries, profile.targetWeight]);
+
+  const calorieChartData = useMemo(() => {
+    const days = [];
+    for (let i = 13; i >= 0; i--) {
+      const date = subDays(new Date(), i);
+      const totals = getDailyTotals(date);
+      days.push({
+        date: format(date, 'MMM d'),
+        calories: totals.calories,
+      });
+    }
+
+    const targetMid = (profile.calorieTarget.min + profile.calorieTarget.max) / 2;
+
+    return {
+      labels: days.map((d) => d.date),
+      datasets: [
+        {
+          label: 'Calories',
+          data: days.map((d) => d.calories),
+          backgroundColor: days.map((d) => {
+            if (d.calories === 0) return '#1f1f1f';
+            if (d.calories < profile.calorieTarget.min) return '#3b82f6';
+            if (d.calories <= profile.calorieTarget.max) return '#22c55e';
+            return '#ef4444';
+          }),
+          borderRadius: 4,
+        },
+      ],
+    };
+  }, [getDailyTotals, profile.calorieTarget]);
+
+  const prList = Object.entries(prs)
+    .map(([name, data]) => ({ name, ...data }))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const workoutDays = useMemo(() => {
+    const last30 = [];
+    for (let i = 29; i >= 0; i--) {
+      const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
+      const daySchedule = schedule[date];
+      const dayCompleted = completedDays[date];
+
+      // Check if this day had a workout scheduled (not rest/family)
+      const hasScheduledWorkout = daySchedule && (
+        (daySchedule.lunch?.type && !['rest', 'family'].includes(daySchedule.lunch.type)) ||
+        (daySchedule.evening?.type && !['rest', 'family'].includes(daySchedule.evening.type))
+      );
+
+      // Check if any session was completed
+      const hasCompletedWorkout = dayCompleted?.lunch || dayCompleted?.evening;
+
+      last30.push({
+        date,
+        hasWorkout: hasCompletedWorkout,
+        wasScheduled: hasScheduledWorkout
+      });
+    }
+    return last30;
+  }, [completedDays, schedule]);
+
+  const completedCount = useMemo(() => {
+    return workoutDays.filter(d => d.hasWorkout).length;
+  }, [workoutDays]);
+
+  const streak = useMemo(() => {
+    let count = 0;
+    for (let i = workoutDays.length - 1; i >= 0; i--) {
+      if (workoutDays[i].hasWorkout) count++;
+      else if (count > 0) break;
+    }
+    return count;
+  }, [workoutDays]);
+
+  return (
+    <div className="p-4 space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold">Progress</h1>
+        <button
+          onClick={() => onNavigate?.('settings')}
+          className="p-2 bg-surface rounded-lg text-text-muted"
+        >
+          <Settings size={20} />
+        </button>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-surface rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingDown size={18} className="text-accent" />
+            <span className="text-sm text-text-muted">Lost</span>
+          </div>
+          <div className="text-2xl font-bold text-accent">{weightLost.toFixed(1)} kg</div>
+          <div className="text-xs text-text-muted">{progress.toFixed(0)}% to goal</div>
+        </div>
+
+        <div className="bg-surface rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Calendar size={18} className="text-info" />
+            <span className="text-sm text-text-muted">Streak</span>
+          </div>
+          <div className="text-2xl font-bold text-info">{streak} days</div>
+          <div className="text-xs text-text-muted">{completedCount} workouts this month</div>
+        </div>
+      </div>
+
+      {/* Weight Chart */}
+      <div className="bg-surface rounded-xl p-4">
+        <h3 className="font-medium mb-3 flex items-center gap-2">
+          <TrendingDown size={18} className="text-accent" />
+          Weight Trend
+        </h3>
+        <div className="h-48">
+          {weightEntries.length > 0 ? (
+            <Line data={weightChartData} options={chartOptions} />
+          ) : (
+            <div className="h-full flex items-center justify-center text-text-muted text-sm">
+              Log your weight to see trends
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Calorie Chart */}
+      <div className="bg-surface rounded-xl p-4">
+        <h3 className="font-medium mb-3 flex items-center gap-2">
+          <Flame size={18} className="text-warning" />
+          Daily Calories (14 days)
+        </h3>
+        <div className="h-40">
+          <Bar data={calorieChartData} options={{
+            ...chartOptions,
+            scales: {
+              ...chartOptions.scales,
+              y: {
+                ...chartOptions.scales.y,
+                min: 0,
+                max: 3500,
+              },
+            },
+          }} />
+        </div>
+        <div className="flex justify-center gap-4 mt-2 text-xs text-text-muted">
+          <span className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded bg-[#22c55e]" /> In range
+          </span>
+          <span className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded bg-[#3b82f6]" /> Under
+          </span>
+          <span className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded bg-[#ef4444]" /> Over
+          </span>
+        </div>
+      </div>
+
+      {/* Workout Calendar */}
+      <div className="bg-surface rounded-xl p-4">
+        <h3 className="font-medium mb-3 flex items-center gap-2">
+          <Calendar size={18} className="text-info" />
+          Workout Consistency (30 days)
+        </h3>
+        <div className="grid grid-cols-10 gap-1">
+          {workoutDays.map((day, i) => (
+            <div
+              key={i}
+              title={`${day.date}${day.hasWorkout ? ' ✓' : day.wasScheduled ? ' ✗' : ''}`}
+              className={`aspect-square rounded-sm ${
+                day.hasWorkout
+                  ? 'bg-accent'
+                  : day.wasScheduled
+                    ? 'bg-danger/50'
+                    : 'bg-border'
+              }`}
+            />
+          ))}
+        </div>
+        <div className="flex justify-center gap-4 mt-2 text-xs text-text-muted">
+          <span className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded bg-accent" /> Completed
+          </span>
+          <span className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded bg-danger/50" /> Missed
+          </span>
+          <span className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded bg-border" /> Rest
+          </span>
+        </div>
+      </div>
+
+      {/* PR List */}
+      <div className="bg-surface rounded-xl p-4">
+        <h3 className="font-medium mb-3 flex items-center gap-2">
+          <Trophy size={18} className="text-warning" />
+          Personal Records
+        </h3>
+        {prList.length > 0 ? (
+          <div className="space-y-2">
+            {prList.slice(0, 10).map((pr) => (
+              <div
+                key={pr.name}
+                className="flex items-center justify-between py-2 border-b border-border last:border-0"
+              >
+                <span className="text-sm">{pr.name}</span>
+                <div className="text-right">
+                  <span className="font-medium text-accent">{pr.weight} kg</span>
+                  <span className="text-xs text-text-muted ml-2">
+                    {format(parseISO(pr.date), 'MMM d')}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-text-muted">Complete workouts to track PRs</p>
+        )}
+      </div>
+    </div>
+  );
+}
