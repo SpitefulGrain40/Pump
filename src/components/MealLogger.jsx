@@ -92,7 +92,7 @@ export default function MealLogger({ onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50">
-      <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+      <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[85vh] sm:max-h-[90vh] mb-16 sm:mb-0 flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-border shrink-0">
           <h2 className="font-semibold">Log Meal</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text">
