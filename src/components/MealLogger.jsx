@@ -100,7 +100,7 @@ export default function MealLogger({ onClose }) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 pb-24">
+        <div className="flex-1 overflow-y-auto p-4">
           {/* Photo buttons */}
           <div className="flex gap-2 mb-4">
             <button
@@ -204,7 +204,7 @@ export default function MealLogger({ onClose }) {
         </div>
 
         {/* Fixed footer with totals and submit */}
-        <div className="absolute bottom-0 left-0 right-0 bg-surface border-t border-border p-4 rounded-b-2xl">
+        <div className="shrink-0 bg-surface border-t border-border p-4">
           <div className="flex justify-between text-sm mb-3">
             <span className="text-text-muted">Total</span>
             <span>
@@ -218,7 +218,7 @@ export default function MealLogger({ onClose }) {
             disabled={items.every((i) => !i.name || !i.calories)}
             className={`w-full py-3 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
               photoAnalyzed && !items.every((i) => !i.name || !i.calories)
-                ? 'bg-accent text-bg animate-pulse'
+                ? 'bg-accent text-bg'
                 : 'bg-accent text-bg'
             }`}
           >
