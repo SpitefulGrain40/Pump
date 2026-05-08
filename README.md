@@ -1,16 +1,65 @@
-# React + Vite
+# Pump - AI-Powered Fitness Coach
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A minimalist PWA for tracking strength training and weight loss with AI coaching via Claude.
 
-Currently, two official plugins are available:
+## Live Environments
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+| Environment | URL | Branch |
+|-------------|-----|--------|
+| **Production** | [spitefulgrain40.github.io/Pump](https://spitefulgrain40.github.io/Pump/) | `gh-pages` |
+| **Test/Sandbox** | [spitefulgrain40.github.io/Pump/test](https://spitefulgrain40.github.io/Pump/test/) | `gh-pages-test` |
 
-## React Compiler
+## Features
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **AI Coach** - Chat with Claude to log meals, plan workouts, and get advice
+- **Photo Meal Logging** - Take a photo and AI estimates calories/protein
+- **Workout Scheduling** - Week A/B patterns for co-parenting schedules
+- **Progress Tracking** - Weight charts, calorie charts, workout consistency
+- **Offline-First** - All data stored locally in browser, works without internet
+- **Weekly Backup Reminder** - Prompts to export data after 7 days
 
-## Expanding the ESLint configuration
+## Tech Stack
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- React 18 + Vite
+- Tailwind CSS 4 (OLED dark theme)
+- Chart.js for visualizations
+- OpenRouter or Anthropic API for AI
+
+## Quick Start
+
+```bash
+npm install
+npm run dev
+```
+
+## Deployment
+
+### Production (gh-pages)
+```bash
+npm run build
+# Deploy dist/ to gh-pages branch
+```
+
+### Test Environment (gh-pages-test)
+```bash
+npm run build
+# Deploy dist/ to gh-pages-test branch under /test subdirectory
+```
+
+## Data Storage
+
+All data persists in browser localStorage:
+- Profile, goals, and targets
+- Meal and workout logs
+- Chat history with Coach
+- Schedule and completed workouts
+
+**Important**: Export backups regularly via Settings > Data > Export Backup
+
+## Documentation
+
+See [CLAUDE.md](CLAUDE.md) for detailed technical documentation including:
+- Data schemas
+- AI command formats
+- Project structure
+- Troubleshooting guide
