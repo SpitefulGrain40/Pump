@@ -75,6 +75,7 @@ export function useBackup() {
       completedWorkouts: localStorage.getItem('pump-completed-workouts'),
       prs: localStorage.getItem('pump-prs'),
       chatHistory: localStorage.getItem('pump-chat-history'),
+      coachMemories: localStorage.getItem('pump-coach-memories'),
     };
 
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -105,6 +106,7 @@ export function useBackup() {
           if (data.completedWorkouts) localStorage.setItem('pump-completed-workouts', data.completedWorkouts);
           if (data.prs) localStorage.setItem('pump-prs', data.prs);
           if (data.chatHistory) localStorage.setItem('pump-chat-history', data.chatHistory);
+          if (data.coachMemories) localStorage.setItem('pump-coach-memories', data.coachMemories);
 
           resolve({ success: true, exportedAt: data.exportedAt });
         } catch (err) {
@@ -128,6 +130,7 @@ export function useBackup() {
       'pump-completed-workouts',
       'pump-prs',
       'pump-chat-history',
+      'pump-coach-memories',
       'pump-last-backup',
     ];
     keys.forEach((key) => localStorage.removeItem(key));

@@ -78,7 +78,7 @@ export default function MealLogger({ onClose }) {
       { calories: 0, protein: 0 }
     );
 
-    logMeal(formattedItems, totals, false);
+    logMeal(formattedItems, totals, photoAnalyzed);
     onClose();
   };
 

@@ -70,8 +70,13 @@ export function useLocalStorageArray(key, defaultValue = []) {
   const [items, setItems] = useLocalStorage(key, defaultValue);
 
   const add = useCallback((item) => {
-    setItems((prev) => [...prev, item]);
-  }, [setItems]);
+    // Write directly to localStorage to ensure it persists even if component unmounts
+    const current = JSON.parse(localStorage.getItem(key) || '[]');
+    const updated = [...current, item];
+    localStorage.setItem(key, JSON.stringify(updated));
+    window.dispatchEvent(new CustomEvent(STORAGE_UPDATE_EVENT, { detail: { key } }));
+    setItems(updated);
+  }, [key, setItems]);
 
   const update = useCallback((id, updates) => {
     setItems((prev) =>

@@ -8,10 +8,19 @@ function sanitizeKey(key) {
 
 export async function sendToOpenRouter(apiKey, model, messages, systemPrompt) {
   const cleanKey = sanitizeKey(apiKey);
-  const formattedMessages = messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+  const formattedMessages = messages.map((m) => {
+    // Handle multimodal messages (text + images)
+    if (m.image) {
+      return {
+        role: m.role,
+        content: [
+          { type: 'text', text: m.content },
+          { type: 'image_url', image_url: { url: m.image } }
+        ]
+      };
+    }
+    return { role: m.role, content: m.content };
+  });
 
   if (systemPrompt) {
     formattedMessages.unshift({ role: 'system', content: systemPrompt });
@@ -51,10 +60,21 @@ export async function sendToOpenRouter(apiKey, model, messages, systemPrompt) {
 
 export async function sendToAnthropic(apiKey, model, messages, systemPrompt) {
   const cleanKey = sanitizeKey(apiKey);
-  const formattedMessages = messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+  const formattedMessages = messages.map((m) => {
+    // Handle multimodal messages (text + images)
+    if (m.image) {
+      const base64Data = m.image.split(',')[1];
+      const mediaType = m.image.match(/data:([^;]+);/)?.[1] || 'image/jpeg';
+      return {
+        role: m.role,
+        content: [
+          { type: 'text', text: m.content },
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } }
+        ]
+      };
+    }
+    return { role: m.role, content: m.content };
+  });
 
   const body = {
     model: model || 'claude-sonnet-4-6',

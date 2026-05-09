@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, AlertCircle } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Camera } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
 import { useUserProfile } from '../hooks/useUserProfile';
@@ -32,8 +32,12 @@ export default function Coach() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [pendingImage, setPendingImage] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const { aiSettings, isConfigured } = useSettings();
   const { profile, updateProfile } = useUserProfile();
@@ -42,6 +46,7 @@ export default function Coach() {
   const { schedule, setWorkoutForDate, setSchedule } = useWorkoutSchedule();
   const { logWeight, entries: weightHistory } = useWeightHistory();
   const [completedDays, setCompletedDays] = useLocalStorage('pump-completed-workouts', {});
+  const [memories, setMemories] = useLocalStorage('pump-coach-memories', []);
 
   // Check for pending prompt from Schedule banner
   useEffect(() => {
@@ -171,6 +176,25 @@ export default function Coach() {
           if (cmd.data.onboardingComplete) {
             executed.push(`✓ Onboarding complete! Welcome to Pump! 🎉`);
           }
+        } else if (cmd.type === 'SAVE_MEMORY' && cmd.data.content) {
+          const memory = {
+            id: `memory-${Date.now()}`,
+            type: cmd.data.type || 'other',
+            content: cmd.data.content,
+            date: cmd.data.date || null,
+            createdAt: new Date().toISOString()
+          };
+          setMemories(prev => [...prev, memory]);
+          executed.push(`✓ Remembered: ${cmd.data.content.substring(0, 50)}${cmd.data.content.length > 50 ? '...' : ''}`);
+        } else if (cmd.type === 'FORGET_MEMORY' && cmd.data.content) {
+          const searchTerm = cmd.data.content.toLowerCase();
+          setMemories(prev => {
+            const filtered = prev.filter(m => !m.content.toLowerCase().includes(searchTerm));
+            if (filtered.length < prev.length) {
+              executed.push(`✓ Forgot memory about: ${cmd.data.content}`);
+            }
+            return filtered;
+          });
         }
       } catch (e) {
         console.error('Command execution failed:', e);
@@ -234,27 +258,34 @@ export default function Coach() {
   };
 
   const handleSend = async (messageText = input) => {
-    if (!messageText.trim() || isLoading) return;
+    if ((!messageText.trim() && !pendingImage) || isLoading) return;
 
     if (!isConfigured()) {
       setError('Please configure your AI provider in Settings first.');
       return;
     }
 
-    const userMessage = { role: 'user', content: messageText.trim(), timestamp: Date.now() };
+    const userMessage = {
+      role: 'user',
+      content: messageText.trim() || 'Analyze this image',
+      timestamp: Date.now(),
+      image: pendingImage || undefined
+    };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setInput('');
+    setPendingImage(null);
     setError(null);
     setIsLoading(true);
 
     try {
       const context = buildContextFromState(profile, meals, workoutLogs, schedule, weightHistory, completedDays);
-      const systemPrompt = buildCoachSystemPrompt(profile, context, context.performance);
+      const systemPrompt = buildCoachSystemPrompt(profile, context, context.performance, memories);
 
       const chatMessages = updatedMessages.slice(-10).map((m) => ({
         role: m.role,
         content: m.content,
+        image: m.image,
       }));
 
       const response = await sendMessage(aiSettings, chatMessages, systemPrompt);
@@ -285,6 +316,21 @@ export default function Coach() {
   const handleQuickPrompt = (prompt) => {
     handleSend(prompt);
   };
+
+  const handleImageSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => setPendingImage(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const filteredMessages = searchQuery
+    ? messages.filter(m =>
+        m.content.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : messages;
 
   const formatMessage = (content) => {
     const lines = content.split('\n');
@@ -332,13 +378,48 @@ export default function Coach() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="p-4 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Sparkles size={20} className="text-accent" />
-          <h1 className="text-lg font-semibold">Coach</h1>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles size={20} className="text-accent" />
+            <h1 className="text-lg font-semibold">Coach</h1>
+          </div>
+          <button
+            onClick={() => setIsSearching(!isSearching)}
+            className={`p-2 rounded-lg ${isSearching ? 'bg-accent text-bg' : 'text-text-muted hover:text-text'}`}
+          >
+            <Search size={20} />
+          </button>
         </div>
-        <p className="text-xs text-text-muted mt-1">
-          Your AI fitness coach • {aiSettings.provider === 'openrouter' ? 'OpenRouter' : 'Anthropic'}
-        </p>
+        {isSearching && (
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search chat history..."
+              className="flex-1 bg-surface border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+              autoFocus
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="p-2 text-text-muted hover:text-text"
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
+        )}
+        {!isSearching && (
+          <p className="text-xs text-text-muted mt-1">
+            Your AI fitness coach • {aiSettings.provider === 'openrouter' ? 'OpenRouter' : 'Anthropic'}
+          </p>
+        )}
+        {isSearching && searchQuery && (
+          <p className="text-xs text-text-muted mt-2">
+            {filteredMessages.length} message{filteredMessages.length !== 1 ? 's' : ''} found
+          </p>
+        )}
       </div>
 
       {/* Messages */}
@@ -352,7 +433,7 @@ export default function Coach() {
           </div>
         )}
 
-        {messages.map((msg, i) => (
+        {filteredMessages.map((msg, i) => (
           <div
             key={i}
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -364,6 +445,13 @@ export default function Coach() {
                   : 'bg-surface rounded-bl-sm'
               }`}
             >
+              {msg.image && (
+                <img
+                  src={msg.image}
+                  alt="Attached"
+                  className="max-w-full rounded-lg mb-2 max-h-48 object-cover"
+                />
+              )}
               <div className="text-sm whitespace-pre-wrap">
                 {msg.role === 'assistant' ? formatMessage(msg.content) : msg.content}
               </div>
@@ -408,20 +496,50 @@ export default function Coach() {
 
       {/* Input */}
       <div className="p-4 border-t border-border">
+        {/* Image preview */}
+        {pendingImage && (
+          <div className="mb-3 relative inline-block">
+            <img
+              src={pendingImage}
+              alt="To send"
+              className="max-h-32 rounded-lg"
+            />
+            <button
+              onClick={() => setPendingImage(null)}
+              className="absolute -top-2 -right-2 bg-danger text-white rounded-full p-1"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
         <div className="flex gap-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading}
+            className="bg-surface border border-border p-3 rounded-xl text-text-muted hover:text-text disabled:opacity-50"
+          >
+            <Image size={20} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageSelect}
+            className="hidden"
+          />
           <input
             ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            placeholder="Ask Coach anything..."
+            placeholder={pendingImage ? "Add a message..." : "Ask Coach anything..."}
             className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 focus:outline-none focus:border-accent"
             disabled={isLoading}
           />
           <button
             onClick={() => handleSend()}
-            disabled={!input.trim() || isLoading}
+            disabled={(!input.trim() && !pendingImage) || isLoading}
             className="bg-accent text-bg p-3 rounded-xl disabled:opacity-50"
           >
             <Send size={20} />

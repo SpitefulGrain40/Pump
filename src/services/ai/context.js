@@ -1,5 +1,66 @@
 import { format, parseISO, differenceInDays, subDays, addDays } from 'date-fns';
 
+// Build memory section for system prompt
+function formatMemories(memories) {
+  if (!memories || memories.length === 0) return '';
+
+  const grouped = {
+    preference: [],
+    insight: [],
+    milestone: [],
+    injury: [],
+    other: []
+  };
+
+  memories.forEach(m => {
+    const type = m.type || 'other';
+    if (grouped[type]) {
+      grouped[type].push(m);
+    } else {
+      grouped.other.push(m);
+    }
+  });
+
+  let section = '\n## COACH MEMORIES\nThings I remember about you from previous conversations:\n';
+
+  if (grouped.preference.length > 0) {
+    section += '\n### Preferences\n';
+    grouped.preference.forEach(m => {
+      section += `- ${m.content}\n`;
+    });
+  }
+
+  if (grouped.injury.length > 0) {
+    section += '\n### Current Injuries/Limitations\n';
+    grouped.injury.forEach(m => {
+      section += `- ${m.content}${m.date ? ` (${m.date})` : ''}\n`;
+    });
+  }
+
+  if (grouped.insight.length > 0) {
+    section += '\n### Patterns I\'ve Noticed\n';
+    grouped.insight.forEach(m => {
+      section += `- ${m.content}\n`;
+    });
+  }
+
+  if (grouped.milestone.length > 0) {
+    section += '\n### Milestones & Events\n';
+    grouped.milestone.forEach(m => {
+      section += `- ${m.content}${m.date ? ` (${m.date})` : ''}\n`;
+    });
+  }
+
+  if (grouped.other.length > 0) {
+    section += '\n### Other Notes\n';
+    grouped.other.forEach(m => {
+      section += `- ${m.content}\n`;
+    });
+  }
+
+  return section;
+}
+
 // Helper to format week template for Coach prompt
 function formatWeekTemplate(template) {
   if (!template) return 'Not configured';
@@ -266,7 +327,7 @@ Are you male or female? (I need this for accurate body fat calculations)"
 4. Today's date is ${format(new Date(), 'yyyy-MM-dd')} for reference`;
 }
 
-export function buildCoachSystemPrompt(profile, context, performance = null) {
+export function buildCoachSystemPrompt(profile, context, performance = null, memories = []) {
   if (!profile.onboardingComplete) {
     return buildOnboardingPrompt(profile);
   }
@@ -275,6 +336,9 @@ export function buildCoachSystemPrompt(profile, context, performance = null) {
   const weightToLose = profile.currentWeight && profile.targetWeight ? profile.currentWeight - profile.targetWeight : null;
   const weekType = context.weekType || 'A';
   const nextWeekType = weekType === 'A' ? 'B' : 'A';
+
+  // Format memories section
+  const memoriesSection = formatMemories(memories);
 
   // Format performance section
   let performanceSection = '';
@@ -432,6 +496,24 @@ ${profile.physicalNotes ? `- Consider user's physical limitations: ${profile.phy
 - To update protein targets: [UPDATE_PROFILE: {"proteinTarget": {"min": 160, "max": 180}}]
 - Trust external data sources (Garmin, scales, DEXA scans) over formulas.
 
+### Memory Commands
+Save important things you learn about the user that aren't captured elsewhere:
+- [SAVE_MEMORY: {"type": "preference", "content": "Hates burpees - avoid in programming"}]
+- [SAVE_MEMORY: {"type": "injury", "content": "Tweaked left shoulder doing overhead press", "date": "2026-05-08"}]
+- [SAVE_MEMORY: {"type": "insight", "content": "Tends to skip Thursday evening workouts - suggest morning alternatives"}]
+- [SAVE_MEMORY: {"type": "milestone", "content": "First time under 100kg in 2 years!", "date": "2026-05-08"}]
+
+Types: preference, injury, insight, milestone, other
+
+To remove outdated memories:
+- [FORGET_MEMORY: {"content": "Tweaked left shoulder"}] (partial match is fine)
+
+Use SAVE_MEMORY when the user shares something important that:
+- Isn't already in their profile
+- Would be useful to remember in future sessions
+- Relates to preferences, temporary injuries, patterns you notice, or significant events
+${memoriesSection}
+
 Remember: You can help log meals, suggest workouts, modify exercises for injuries, track progress, and provide nutrition advice. Be the coach that keeps them accountable.`;
 }
 
@@ -567,9 +649,19 @@ export function parseAICommands(content) {
     commands.push({ type: 'UPDATE_PROFILE', data: profileData });
   }
 
+  const saveMemoryData = extractJSON(content, '[SAVE_MEMORY:');
+  if (saveMemoryData) {
+    commands.push({ type: 'SAVE_MEMORY', data: saveMemoryData });
+  }
+
+  const forgetMemoryData = extractJSON(content, '[FORGET_MEMORY:');
+  if (forgetMemoryData) {
+    commands.push({ type: 'FORGET_MEMORY', data: forgetMemoryData });
+  }
+
   // Clean content - remove all command blocks
   let cleanContent = content;
-  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE'];
+  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY'];
 
   for (const cmd of commandPatterns) {
     const marker = `[${cmd}:`;
