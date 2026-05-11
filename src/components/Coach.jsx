@@ -45,10 +45,10 @@ function CollapsibleUrlContent({ url, content }) {
     <div className="mt-2 border border-border rounded-lg overflow-hidden">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-2 px-3 py-2 bg-surface-light text-left text-xs"
+        className="w-full flex items-center gap-2 px-3 py-2 bg-surface-light text-left text-xs text-white"
       >
-        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <Link size={12} />
+        {isOpen ? <ChevronDown size={14} className="text-white" /> : <ChevronRight size={14} className="text-white" />}
+        <Link size={12} className="text-white" />
         <span className="truncate flex-1">{url}</span>
       </button>
       {isOpen && (
