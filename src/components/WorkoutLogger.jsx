@@ -26,7 +26,12 @@ export default function WorkoutLogger({ workout, onClose, onComplete }) {
         const history = getExerciseHistory(ex.name, 1);
         const prev = history[0] || null;
         const plannedWeight = typeof ex.weight === 'number' ? ex.weight : parseWeight(ex.weight);
-        const prevWeight = prev?.weight?.[0];
+
+        // Parse previous weight - could be number or string from old data
+        const rawPrevWeight = prev?.weight?.[0];
+        const prevWeight = typeof rawPrevWeight === 'number' ? rawPrevWeight : parseWeight(rawPrevWeight);
+        const prevReps = typeof prev?.reps?.[0] === 'number' ? prev.reps[0] : ex.reps;
+
         const initialWeight = prevWeight > 0 ? prevWeight : plannedWeight;
 
         return {
@@ -34,8 +39,8 @@ export default function WorkoutLogger({ workout, onClose, onComplete }) {
           notes: ex.notes || '',
           planned: { sets: ex.sets, reps: ex.reps, weight: plannedWeight },
           prev: prev ? {
-            reps: prev.reps?.[0] || ex.reps,
-            weight: prevWeight || 0
+            reps: prevReps,
+            weight: prevWeight
           } : null,
           actual: {
             sets: Array(ex.sets).fill(false),
