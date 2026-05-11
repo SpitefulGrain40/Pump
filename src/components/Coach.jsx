@@ -42,17 +42,17 @@ function extractUrls(text) {
 function CollapsibleUrlContent({ url, content }) {
   const [isOpen, setIsOpen] = useState(false);
   return (
-    <div className="mt-2 border border-border rounded-lg overflow-hidden">
+    <div className="mt-2 rounded-lg overflow-hidden bg-black/20">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-2 px-3 py-2 bg-surface-light text-left text-xs text-white"
+        className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs"
       >
-        {isOpen ? <ChevronDown size={14} className="text-white" /> : <ChevronRight size={14} className="text-white" />}
-        <Link size={12} className="text-white" />
-        <span className="truncate flex-1">{url}</span>
+        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <Link size={12} />
+        <span className="truncate flex-1 opacity-90">{url}</span>
       </button>
       {isOpen && (
-        <div className="px-3 py-2 text-xs text-text-muted max-h-48 overflow-y-auto whitespace-pre-wrap">
+        <div className="px-3 py-2 text-xs opacity-80 max-h-48 overflow-y-auto whitespace-pre-wrap bg-black/10">
           {content}
         </div>
       )}
