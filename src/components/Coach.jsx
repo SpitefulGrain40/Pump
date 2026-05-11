@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Camera, Link, ChevronDown, ChevronRight } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Camera, Link, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
-import { useWorkoutLogs, useWorkoutSchedule } from '../hooks/useWorkoutLogs';
+import { useWorkoutLogs, useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
 import { useWeightHistory } from '../hooks/useWeightHistory';
 import {
   sendMessage,
@@ -107,6 +107,7 @@ export default function Coach() {
   const { meals, logMeal } = useNutritionLogs();
   const { logs: workoutLogs, logWorkout, prs, setPRs } = useWorkoutLogs();
   const { schedule, setWorkoutForDate, setSchedule } = useWorkoutSchedule();
+  const { addExercise, removeExercise, updateExercise } = useWorkoutTemplates();
   const { logWeight, entries: weightHistory } = useWeightHistory();
   const [completedDays, setCompletedDays] = useLocalStorage('pump-completed-workouts', {});
   const [memories, setMemories] = useLocalStorage('pump-coach-memories', []);
@@ -258,6 +259,18 @@ export default function Coach() {
             }
             return filtered;
           });
+        } else if (cmd.type === 'UPDATE_TEMPLATE' && cmd.data) {
+          const { action, template, exercise, updates } = cmd.data;
+          if (action === 'add' && template && exercise) {
+            addExercise(template, exercise);
+            executed.push(`✓ Added "${exercise.name}" to ${template} template`);
+          } else if (action === 'remove' && template && cmd.data.exerciseName) {
+            removeExercise(template, cmd.data.exerciseName);
+            executed.push(`✓ Removed "${cmd.data.exerciseName}" from ${template} template`);
+          } else if (action === 'update' && template && cmd.data.exerciseName && updates) {
+            updateExercise(template, cmd.data.exerciseName, updates);
+            executed.push(`✓ Updated "${cmd.data.exerciseName}" in ${template} template`);
+          }
         }
       } catch (e) {
         console.error('Command execution failed:', e);
@@ -472,12 +485,28 @@ export default function Coach() {
             <Sparkles size={20} className="text-accent" />
             <h1 className="text-lg font-semibold">Coach</h1>
           </div>
-          <button
-            onClick={() => setIsSearching(!isSearching)}
-            className={`p-2 rounded-lg ${isSearching ? 'bg-accent text-bg' : 'text-text-muted hover:text-text'}`}
-          >
-            <Search size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (messages.length === 0) {
+                  alert('No chat history to clear.');
+                  return;
+                }
+                if (confirm('Clear chat history? Your other data (meals, workouts, etc.) will be kept.')) {
+                  setMessages([]);
+                }
+              }}
+              className="px-2 py-1 rounded bg-red-600 text-white text-xs"
+            >
+              Clear
+            </button>
+            <button
+              onClick={() => setIsSearching(!isSearching)}
+              className={`p-2 rounded-lg ${isSearching ? 'bg-accent text-bg' : 'text-text-muted hover:text-text'}`}
+            >
+              <Search size={20} />
+            </button>
+          </div>
         </div>
         {isSearching && (
           <div className="mt-3 flex items-center gap-2">

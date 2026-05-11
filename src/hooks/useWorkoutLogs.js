@@ -158,3 +158,65 @@ export function useWorkoutSchedule() {
     setSchedule,
   };
 }
+
+export function useWorkoutTemplates() {
+  const [templates, setTemplates] = useLocalStorage('pump-workout-templates', WORKOUT_TEMPLATES);
+
+  const getTemplate = (type) => templates[type] || WORKOUT_TEMPLATES[type] || null;
+
+  const addExercise = (templateName, exercise) => {
+    setTemplates(prev => {
+      const template = prev[templateName] || WORKOUT_TEMPLATES[templateName];
+      if (!template) return prev;
+
+      return {
+        ...prev,
+        [templateName]: {
+          ...template,
+          exercises: [...(template.exercises || []), exercise]
+        }
+      };
+    });
+  };
+
+  const removeExercise = (templateName, exerciseName) => {
+    setTemplates(prev => {
+      const template = prev[templateName] || WORKOUT_TEMPLATES[templateName];
+      if (!template) return prev;
+
+      return {
+        ...prev,
+        [templateName]: {
+          ...template,
+          exercises: (template.exercises || []).filter(e => e.name !== exerciseName)
+        }
+      };
+    });
+  };
+
+  const updateExercise = (templateName, exerciseName, updates) => {
+    setTemplates(prev => {
+      const template = prev[templateName] || WORKOUT_TEMPLATES[templateName];
+      if (!template) return prev;
+
+      return {
+        ...prev,
+        [templateName]: {
+          ...template,
+          exercises: (template.exercises || []).map(e =>
+            e.name === exerciseName ? { ...e, ...updates } : e
+          )
+        }
+      };
+    });
+  };
+
+  return {
+    templates,
+    getTemplate,
+    addExercise,
+    removeExercise,
+    updateExercise,
+    setTemplates,
+  };
+}

@@ -444,6 +444,11 @@ When the user wants to log or update data, include these commands in your respon
   - notes: Optional notes about the session
   - This also marks the workout as complete for that day
 - Update profile: [UPDATE_PROFILE: {"fieldName": "value"}]
+- **Modify workout templates**: [UPDATE_TEMPLATE: {"template": "push", "action": "add", "exercise": {"name": "Exercise Name", "sets": 3, "reps": 10, "weight": 20}}]
+  - action: "add" | "remove" | "update"
+  - template: "push" | "pull" | "legs" | "bike" | "core"
+  - For remove: {"template": "push", "action": "remove", "exerciseName": "Exercise Name"}
+  - For update: {"template": "push", "action": "update", "exerciseName": "Exercise Name", "updates": {"weight": 25}}
 
 ### Schedule Commands
 Set full day schedule with lunch/evening sessions, calories, protein, and notes:
@@ -476,6 +481,7 @@ When creating schedules, include:
 - calories target for the day (from template or adjusted)
 - protein target for the day (from template or adjusted)
 - notes for daily standards (sleep time, kitchen rules, Nyxie/Solo, etc.)
+- **IMPORTANT**: Only output ONE WEEK at a time (7 days max) to avoid response truncation
 
 ## FORMATTING RULES
 - Be concise and direct. No fluff.
@@ -662,9 +668,14 @@ export function parseAICommands(content) {
     commands.push({ type: 'FORGET_MEMORY', data: forgetMemoryData });
   }
 
+  const templateData = extractJSON(content, '[UPDATE_TEMPLATE:');
+  if (templateData) {
+    commands.push({ type: 'UPDATE_TEMPLATE', data: templateData });
+  }
+
   // Clean content - remove all command blocks
   let cleanContent = content;
-  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY'];
+  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE'];
 
   for (const cmd of commandPatterns) {
     const marker = `[${cmd}:`;

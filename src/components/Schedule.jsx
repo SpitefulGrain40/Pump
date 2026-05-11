@@ -3,10 +3,9 @@ import {
   ChevronLeft, ChevronRight, Dumbbell, Coffee, Bike, Flame,
   Footprints, X, Edit3, Trash2, Clock, Target, Moon, CheckCircle2, Circle, Sparkles, Bell, Play
 } from 'lucide-react';
-import { useWorkoutSchedule } from '../hooks/useWorkoutLogs';
+import { useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { WORKOUT_TEMPLATES } from '../utils/dataSchemas';
 import { format, addDays, startOfWeek, isToday, parseISO, isBefore, getDay } from 'date-fns';
 import WorkoutLogger from './WorkoutLogger';
 
@@ -30,6 +29,7 @@ const ACTIVITY_CONFIG = {
 
 export default function Schedule({ onNavigate }) {
   const { schedule, setSchedule, getFortnightSchedule } = useWorkoutSchedule();
+  const { getTemplate } = useWorkoutTemplates();
   const { profile, getWeekTypeForDate } = useUserProfile();
   const [completedDays, setCompletedDays] = useLocalStorage('pump-completed-workouts', {});
 
@@ -214,8 +214,6 @@ export default function Schedule({ onNavigate }) {
     const mainType = dayData.lunch?.type || dayData.evening?.type || dayData.type;
     return ACTIVITY_CONFIG[mainType] || { icon: null, color: 'bg-surface', label: '', emoji: '' };
   };
-
-  const getTemplate = (type) => WORKOUT_TEMPLATES[type] || null;
 
   const hasExercises = (type) => {
     const template = getTemplate(type);
