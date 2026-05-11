@@ -611,9 +611,12 @@ export function parseAICommands(content) {
 
     if (jsonEnd === -1) return null;
 
+    const jsonStr = str.slice(jsonStart, jsonEnd);
     try {
-      return JSON.parse(str.slice(jsonStart, jsonEnd));
+      return JSON.parse(jsonStr);
     } catch (e) {
+      console.error(`Failed to parse JSON for ${startMarker}:`, e.message);
+      console.error('JSON string was:', jsonStr.substring(0, 500));
       return null;
     }
   };
