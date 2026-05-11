@@ -1,10 +1,17 @@
 import { useState, useEffect } from 'react';
-import { X, Check, Trophy, Play, Pause, RotateCcw } from 'lucide-react';
+import { X, Check, Trophy, Play, Pause, RotateCcw, MessageCircle } from 'lucide-react';
 import { useWorkoutLogs } from '../hooks/useWorkoutLogs';
 import { format } from 'date-fns';
 
-export default function WorkoutLogger({ workout, onClose }) {
-  const { logWorkout, completeWorkout, getTodaysWorkout } = useWorkoutLogs();
+function parseWeight(weightStr) {
+  if (typeof weightStr === 'number') return weightStr;
+  if (!weightStr || weightStr === '-') return 0;
+  const match = String(weightStr).match(/(\d+(?:\.\d+)?)/);
+  return match ? parseFloat(match[1]) : 0;
+}
+
+export default function WorkoutLogger({ workout, onClose, onComplete }) {
+  const { logWorkout, completeWorkout, getWorkoutForDate, getExerciseHistory } = useWorkoutLogs();
   const [exercises, setExercises] = useState([]);
   const [currentExercise, setCurrentExercise] = useState(0);
   const [timer, setTimer] = useState(0);
@@ -15,15 +22,28 @@ export default function WorkoutLogger({ workout, onClose }) {
 
   useEffect(() => {
     if (workout?.exercises) {
-      const exerciseData = workout.exercises.map((ex) => ({
-        name: ex.name,
-        planned: { sets: ex.sets, reps: ex.reps, weight: ex.weight || 0 },
-        actual: {
-          sets: Array(ex.sets).fill(false),
-          reps: Array(ex.sets).fill(ex.reps),
-          weight: Array(ex.sets).fill(ex.weight || 0),
-        },
-      }));
+      const exerciseData = workout.exercises.map((ex) => {
+        const history = getExerciseHistory(ex.name, 1);
+        const prev = history[0] || null;
+        const plannedWeight = typeof ex.weight === 'number' ? ex.weight : parseWeight(ex.weight);
+        const prevWeight = prev?.weight?.[0];
+        const initialWeight = prevWeight > 0 ? prevWeight : plannedWeight;
+
+        return {
+          name: ex.name,
+          notes: ex.notes || '',
+          planned: { sets: ex.sets, reps: ex.reps, weight: plannedWeight },
+          prev: prev ? {
+            reps: prev.reps?.[0] || ex.reps,
+            weight: prevWeight || 0
+          } : null,
+          actual: {
+            sets: Array(ex.sets).fill(false),
+            reps: Array(ex.sets).fill(ex.reps),
+            weight: Array(ex.sets).fill(initialWeight),
+          },
+        };
+      });
       setExercises(exerciseData);
     }
   }, [workout]);
@@ -63,16 +83,23 @@ export default function WorkoutLogger({ workout, onClose }) {
   };
 
   const handleFinishWorkout = () => {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    let existingWorkout = getTodaysWorkout();
+    const workoutDate = workout.date || format(new Date(), 'yyyy-MM-dd');
+    let existingWorkout = getWorkoutForDate(workoutDate);
 
     if (!existingWorkout) {
-      existingWorkout = logWorkout(today, exercises);
+      existingWorkout = logWorkout(workoutDate, exercises);
     }
 
     const prs = completeWorkout(existingWorkout.id, exercises);
     setNewPRs(prs);
     setIsComplete(true);
+  };
+
+  const handleDone = () => {
+    if (onComplete) {
+      onComplete(exercises, newPRs);
+    }
+    onClose();
   };
 
   const formatTime = (seconds) => {
@@ -83,7 +110,7 @@ export default function WorkoutLogger({ workout, onClose }) {
 
   if (isComplete) {
     return (
-      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      <div className="fixed inset-0 bg-black flex items-center justify-center z-[60] p-4">
         <div className="bg-surface rounded-2xl w-full max-w-sm p-6 text-center">
           <div className="w-16 h-16 bg-accent/20 rounded-full flex items-center justify-center mx-auto mb-4">
             <Check size={32} className="text-accent" />
@@ -106,10 +133,11 @@ export default function WorkoutLogger({ workout, onClose }) {
           )}
 
           <button
-            onClick={onClose}
-            className="w-full bg-accent text-bg py-3 rounded-lg font-semibold"
+            onClick={handleDone}
+            className="w-full bg-accent text-bg py-3 rounded-lg font-semibold flex items-center justify-center gap-2"
           >
-            Done
+            <MessageCircle size={18} />
+            Ask Coach for Analysis
           </button>
         </div>
       </div>
@@ -121,8 +149,8 @@ export default function WorkoutLogger({ workout, onClose }) {
   const totalSets = currentEx?.planned.sets || 0;
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex flex-col z-50">
-      <div className="bg-surface p-4 flex items-center justify-between">
+    <div className="fixed inset-0 bg-black flex flex-col z-[60]">
+      <div className="bg-black p-4 flex items-center justify-between">
         <div>
           <h2 className="font-semibold">{workout.name}</h2>
           <p className="text-sm text-text-muted">
@@ -159,57 +187,75 @@ export default function WorkoutLogger({ workout, onClose }) {
       <div className="flex-1 overflow-y-auto p-4">
         {currentEx && (
           <div className="space-y-4">
-            <div className="text-center mb-6">
+            <div className="text-center mb-4">
               <h3 className="text-xl font-bold">{currentEx.name}</h3>
-              <p className="text-text-muted">
-                Target: {currentEx.planned.sets}×{currentEx.planned.reps}
+              <p className="text-text-muted text-sm">
+                Coach: {currentEx.planned.sets}×{currentEx.planned.reps}
                 {currentEx.planned.weight > 0 && ` @ ${currentEx.planned.weight}kg`}
               </p>
+              {currentEx.notes && (
+                <p className="text-text-muted text-xs mt-1">{currentEx.notes}</p>
+              )}
+            </div>
+
+            {/* Column Headers */}
+            <div className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 px-1 text-xs text-text-muted">
+              <div className="w-8"></div>
+              <div className="text-center">Prev</div>
+              <div className="text-center">Reps</div>
+              <div className="text-center">Weight</div>
+              <div className="w-10"></div>
             </div>
 
             {/* Sets */}
-            <div className="space-y-3">
+            <div className="space-y-2">
               {currentEx.actual.sets.map((completed, setIndex) => (
                 <div
                   key={setIndex}
-                  className={`flex items-center gap-3 p-3 rounded-lg ${
+                  className={`grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 items-center p-2 rounded-lg ${
                     completed ? 'bg-accent/20' : 'bg-surface-light'
                   }`}
                 >
+                  {/* Set Number */}
+                  <div className="w-8 h-8 rounded-full bg-border flex items-center justify-center text-sm font-medium">
+                    {setIndex + 1}
+                  </div>
+
+                  {/* Previous */}
+                  <div className="text-center text-sm text-text-muted">
+                    {currentEx.prev ? (
+                      <span>{currentEx.prev.reps}×{currentEx.prev.weight}kg</span>
+                    ) : (
+                      <span className="opacity-50">—</span>
+                    )}
+                  </div>
+
+                  {/* Actual Reps */}
+                  <input
+                    type="number"
+                    value={currentEx.actual.reps[setIndex]}
+                    onChange={(e) => handleValueChange(currentExercise, setIndex, 'reps', e.target.value)}
+                    className="w-full bg-bg border border-border rounded px-2 py-1.5 text-center text-sm"
+                  />
+
+                  {/* Actual Weight */}
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={currentEx.actual.weight[setIndex]}
+                    onChange={(e) => handleValueChange(currentExercise, setIndex, 'weight', e.target.value)}
+                    className="w-full bg-bg border border-border rounded px-2 py-1.5 text-center text-sm"
+                  />
+
+                  {/* Complete Checkbox */}
                   <button
                     onClick={() => handleSetComplete(currentExercise, setIndex)}
-                    className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                    className={`w-10 h-10 rounded-full flex items-center justify-center ${
                       completed ? 'bg-accent text-bg' : 'bg-border'
                     }`}
                   >
-                    {completed ? <Check size={18} /> : setIndex + 1}
+                    {completed ? <Check size={20} /> : null}
                   </button>
-
-                  <div className="flex-1 grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs text-text-muted">Reps</label>
-                      <input
-                        type="number"
-                        value={currentEx.actual.reps[setIndex]}
-                        onChange={(e) =>
-                          handleValueChange(currentExercise, setIndex, 'reps', e.target.value)
-                        }
-                        className="w-full bg-bg border border-border rounded px-2 py-1 text-center"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-text-muted">Weight (kg)</label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={currentEx.actual.weight[setIndex]}
-                        onChange={(e) =>
-                          handleValueChange(currentExercise, setIndex, 'weight', e.target.value)
-                        }
-                        className="w-full bg-bg border border-border rounded px-2 py-1 text-center"
-                      />
-                    </div>
-                  </div>
                 </div>
               ))}
             </div>
@@ -223,7 +269,7 @@ export default function WorkoutLogger({ workout, onClose }) {
       </div>
 
       {/* Navigation */}
-      <div className="bg-surface p-4 border-t border-border flex gap-3">
+      <div className="bg-black p-4 border-t border-border flex gap-3">
         <button
           onClick={() => setCurrentExercise(Math.max(0, currentExercise - 1))}
           disabled={currentExercise === 0}

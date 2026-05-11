@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import {
   ChevronLeft, ChevronRight, Dumbbell, Coffee, Bike, Flame,
-  Footprints, X, Edit3, Trash2, Clock, Target, Moon, CheckCircle2, Circle, Sparkles, Bell
+  Footprints, X, Edit3, Trash2, Clock, Target, Moon, CheckCircle2, Circle, Sparkles, Bell, Play
 } from 'lucide-react';
 import { useWorkoutSchedule } from '../hooks/useWorkoutLogs';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { WORKOUT_TEMPLATES } from '../utils/dataSchemas';
 import { format, addDays, startOfWeek, isToday, parseISO, isBefore, getDay } from 'date-fns';
+import WorkoutLogger from './WorkoutLogger';
 
 const ACTIVITY_CONFIG = {
   push: { label: 'Push', icon: Dumbbell, color: 'bg-info/20 text-info', emoji: '💪' },
@@ -38,6 +39,7 @@ export default function Schedule({ onNavigate }) {
   const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState(null);
   const [showPlanningBanner, setShowPlanningBanner] = useState(false);
+  const [activeWorkout, setActiveWorkout] = useState(null);
 
   const days = getFortnightSchedule(startDate);
   const firstWeekType = getWeekTypeForDate(startDate);
@@ -214,6 +216,65 @@ export default function Schedule({ onNavigate }) {
   };
 
   const getTemplate = (type) => WORKOUT_TEMPLATES[type] || null;
+
+  const hasExercises = (type) => {
+    const template = getTemplate(type);
+    return template?.exercises && template.exercises.length > 0;
+  };
+
+  const handleStartWorkout = (session, sessionType) => {
+    const template = getTemplate(session.type);
+    if (!template?.exercises) return;
+
+    setActiveWorkout({
+      name: `${ACTIVITY_CONFIG[session.type]?.label || session.type} - ${format(parseISO(selectedDay.date), 'MMM d')}`,
+      date: selectedDay.date,
+      sessionType,
+      exercises: template.exercises
+    });
+    setShowDayDetail(false);
+  };
+
+  const handleWorkoutClose = () => {
+    setActiveWorkout(null);
+  };
+
+  const handleWorkoutComplete = (exercises, newPRs) => {
+    if (!activeWorkout) return;
+
+    // Mark the session as complete
+    setCompletedDays(prev => ({
+      ...prev,
+      [activeWorkout.date]: {
+        ...prev[activeWorkout.date],
+        [activeWorkout.sessionType]: true
+      }
+    }));
+
+    // Build workout summary for Coach
+    const summary = exercises.map(ex => {
+      const completedSets = ex.actual.sets.filter(Boolean).length;
+      const avgWeight = ex.actual.weight.reduce((a, b) => a + b, 0) / ex.actual.weight.length;
+      const avgReps = ex.actual.reps.reduce((a, b) => a + b, 0) / ex.actual.reps.length;
+      return `${ex.name}: ${completedSets} sets, ~${Math.round(avgReps)} reps @ ${Math.round(avgWeight)}kg`;
+    }).join('\n');
+
+    const prText = newPRs.length > 0
+      ? `\n\nNew PRs: ${newPRs.map(pr => `${pr.name} ${pr.weight}kg`).join(', ')}`
+      : '';
+
+    const coachPrompt = `Just finished my ${activeWorkout.name} workout:\n\n${summary}${prText}\n\nHow did I do? Any feedback on my performance?`;
+
+    // Store prompt for Coach to pick up
+    localStorage.setItem('pump-pending-coach-prompt', coachPrompt);
+
+    setActiveWorkout(null);
+
+    // Navigate to Coach
+    if (onNavigate) {
+      onNavigate('coach');
+    }
+  };
 
   const renderDayCard = (day) => {
     const dayData = schedule[day.date];
@@ -475,6 +536,15 @@ export default function Schedule({ onNavigate }) {
                         <p className="text-sm text-text-muted mt-1">{editData.lunch.notes}</p>
                       )}
                       {renderWorkoutDetails(editData.lunch.type)}
+                      {hasExercises(editData.lunch.type) && !isCompleted(selectedDay.date, 'lunch') && (
+                        <button
+                          onClick={() => handleStartWorkout(editData.lunch, 'lunch')}
+                          className="mt-3 w-full py-2 bg-info text-white rounded-lg font-medium flex items-center justify-center gap-2"
+                        >
+                          <Play size={16} />
+                          Start Workout
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -678,6 +748,14 @@ export default function Schedule({ onNavigate }) {
             </div>
           </div>
         </div>
+      )}
+
+      {activeWorkout && (
+        <WorkoutLogger
+          workout={activeWorkout}
+          onClose={handleWorkoutClose}
+          onComplete={handleWorkoutComplete}
+        />
       )}
     </div>
   );
