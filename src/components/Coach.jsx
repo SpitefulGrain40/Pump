@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Camera } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Camera, Link } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
 import { useUserProfile } from '../hooks/useUserProfile';
@@ -20,6 +20,24 @@ import {
   getBodyFatCategory,
 } from '../utils/calculations';
 
+// Fetch URL content via Jina AI Reader
+async function fetchUrlContent(url) {
+  const jinaUrl = `https://r.jina.ai/${url}`;
+  const response = await fetch(jinaUrl, {
+    headers: { 'Accept': 'text/markdown' }
+  });
+  if (!response.ok) throw new Error('Failed to fetch URL');
+  const text = await response.text();
+  // Limit content to avoid token explosion
+  return text.slice(0, 8000);
+}
+
+// Extract URLs from text
+function extractUrls(text) {
+  const urlRegex = /https?:\/\/[^\s<>\"']+/g;
+  return text.match(urlRegex) || [];
+}
+
 const QUICK_PROMPTS = [
   { label: 'Plan next 2 weeks', prompt: "Plan my schedule for the next two weeks based on my Week A/B templates." },
   { label: 'Log meal', prompt: "I just ate. Let me describe it and you help me log the calories and protein." },
@@ -35,6 +53,7 @@ export default function Coach() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [pendingImage, setPendingImage] = useState(null);
+  const [fetchingUrls, setFetchingUrls] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -265,9 +284,31 @@ export default function Coach() {
       return;
     }
 
+    let finalMessageText = messageText.trim() || 'Analyze this image';
+
+    // Check for URLs and fetch their content
+    const urls = extractUrls(finalMessageText);
+    let urlContents = [];
+
+    if (urls.length > 0) {
+      setFetchingUrls(true);
+      for (const url of urls.slice(0, 3)) { // Limit to 3 URLs
+        try {
+          const content = await fetchUrlContent(url);
+          urlContents.push(`\n\n---\n**Content from ${url}:**\n${content}\n---`);
+        } catch (e) {
+          urlContents.push(`\n\n(Failed to fetch ${url})`);
+        }
+      }
+      setFetchingUrls(false);
+      if (urlContents.length > 0) {
+        finalMessageText += urlContents.join('');
+      }
+    }
+
     const userMessage = {
       role: 'user',
-      content: messageText.trim() || 'Analyze this image',
+      content: finalMessageText,
       timestamp: Date.now(),
       image: pendingImage || undefined
     };
@@ -459,7 +500,17 @@ export default function Coach() {
           </div>
         ))}
 
-        {isLoading && (
+        {fetchingUrls && (
+          <div className="flex justify-start">
+            <div className="bg-surface rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-2">
+              <Link size={16} className="text-accent" />
+              <span className="text-sm text-text-muted">Fetching link content...</span>
+              <Loader2 size={16} className="animate-spin text-accent" />
+            </div>
+          </div>
+        )}
+
+        {isLoading && !fetchingUrls && (
           <div className="flex justify-start">
             <div className="bg-surface rounded-2xl rounded-bl-sm px-4 py-3">
               <Loader2 size={20} className="animate-spin text-accent" />
