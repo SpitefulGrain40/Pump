@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Camera, Link } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Camera, Link, ChevronDown, ChevronRight } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
 import { useUserProfile } from '../hooks/useUserProfile';
@@ -36,6 +36,50 @@ async function fetchUrlContent(url) {
 function extractUrls(text) {
   const urlRegex = /https?:\/\/[^\s<>\"']+/g;
   return text.match(urlRegex) || [];
+}
+
+// Collapsible URL content component
+function CollapsibleUrlContent({ url, content }) {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div className="mt-2 border border-border rounded-lg overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-surface-light text-left text-xs"
+      >
+        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <Link size={12} />
+        <span className="truncate flex-1">{url}</span>
+      </button>
+      {isOpen && (
+        <div className="px-3 py-2 text-xs text-text-muted max-h-48 overflow-y-auto whitespace-pre-wrap">
+          {content}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Parse message content to separate text from URL content blocks
+function parseMessageWithUrls(content) {
+  const urlBlockRegex = /\n\n---\n\*\*Content from (https?:\/\/[^\*]+):\*\*\n([\s\S]*?)\n---/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = urlBlockRegex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: 'url', url: match[1], content: match[2] });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < content.length) {
+    parts.push({ type: 'text', content: content.slice(lastIndex) });
+  }
+
+  return parts.length > 0 ? parts : [{ type: 'text', content }];
 }
 
 const QUICK_PROMPTS = [
@@ -318,6 +362,10 @@ export default function Coach() {
     setPendingImage(null);
     setError(null);
     setIsLoading(true);
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
 
     try {
       const context = buildContextFromState(profile, meals, workoutLogs, schedule, weightHistory, completedDays);
@@ -493,9 +541,21 @@ export default function Coach() {
                   className="max-w-full rounded-lg mb-2 max-h-48 object-cover"
                 />
               )}
-              <div className="text-sm whitespace-pre-wrap">
-                {msg.role === 'assistant' ? formatMessage(msg.content) : msg.content}
-              </div>
+              {msg.role === 'user' ? (
+                <div className="text-sm">
+                  {parseMessageWithUrls(msg.content).map((part, j) =>
+                    part.type === 'url' ? (
+                      <CollapsibleUrlContent key={j} url={part.url} content={part.content} />
+                    ) : (
+                      <span key={j} className="whitespace-pre-wrap">{part.content}</span>
+                    )
+                  )}
+                </div>
+              ) : (
+                <div className="text-sm whitespace-pre-wrap">
+                  {formatMessage(msg.content)}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -563,11 +623,11 @@ export default function Coach() {
             </button>
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-end">
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading}
-            className="bg-surface border border-border p-3 rounded-xl text-text-muted hover:text-text disabled:opacity-50"
+            className="bg-surface border border-border p-3 rounded-xl text-text-muted hover:text-text disabled:opacity-50 shrink-0"
           >
             <Image size={20} />
           </button>
@@ -578,20 +638,30 @@ export default function Coach() {
             onChange={handleImageSelect}
             className="hidden"
           />
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+            onChange={(e) => {
+              setInput(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
             placeholder={pendingImage ? "Add a message..." : "Ask Coach anything..."}
-            className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 focus:outline-none focus:border-accent"
+            className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 focus:outline-none focus:border-accent resize-none overflow-hidden"
             disabled={isLoading}
+            rows={1}
+            style={{ minHeight: '48px', maxHeight: '150px' }}
           />
           <button
             onClick={() => handleSend()}
             disabled={(!input.trim() && !pendingImage) || isLoading}
-            className="bg-accent text-bg p-3 rounded-xl disabled:opacity-50"
+            className="bg-accent text-bg p-3 rounded-xl disabled:opacity-50 shrink-0"
           >
             <Send size={20} />
           </button>
