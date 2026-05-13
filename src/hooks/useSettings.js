@@ -76,6 +76,10 @@ export function useBackup() {
       prs: localStorage.getItem('pump-prs'),
       chatHistory: localStorage.getItem('pump-chat-history'),
       coachMemories: localStorage.getItem('pump-coach-memories'),
+      docChat: localStorage.getItem('pump-doc-chat'),
+      docLongterm: localStorage.getItem('pump-doc-longterm'),
+      docSessions: localStorage.getItem('pump-doc-sessions'),
+      docSystemPrompt: localStorage.getItem('pump-doc-system-prompt'),
     };
 
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -107,6 +111,10 @@ export function useBackup() {
           if (data.prs) localStorage.setItem('pump-prs', data.prs);
           if (data.chatHistory) localStorage.setItem('pump-chat-history', data.chatHistory);
           if (data.coachMemories) localStorage.setItem('pump-coach-memories', data.coachMemories);
+          if (data.docChat) localStorage.setItem('pump-doc-chat', data.docChat);
+          if (data.docLongterm) localStorage.setItem('pump-doc-longterm', data.docLongterm);
+          if (data.docSessions) localStorage.setItem('pump-doc-sessions', data.docSessions);
+          if (data.docSystemPrompt) localStorage.setItem('pump-doc-system-prompt', data.docSystemPrompt);
 
           resolve({ success: true, exportedAt: data.exportedAt });
         } catch (err) {
@@ -131,6 +139,10 @@ export function useBackup() {
       'pump-prs',
       'pump-chat-history',
       'pump-coach-memories',
+      'pump-doc-chat',
+      'pump-doc-longterm',
+      'pump-doc-sessions',
+      'pump-doc-system-prompt',
       'pump-last-backup',
     ];
     keys.forEach((key) => localStorage.removeItem(key));

@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
-import { LayoutDashboard, MessageCircle, Calendar, TrendingUp, Settings, Utensils } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { LayoutDashboard, Utensils, Calendar, Brain, MoreHorizontal, MessageCircle, TrendingUp, Settings, X } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Coach from './components/Coach';
 import Schedule from './components/Schedule';
 import Progress from './components/Progress';
 import SettingsView from './components/Settings';
 import Nutrition from './components/Nutrition';
+import Doc from './components/Doc';
 import OnboardingWizard from './components/OnboardingWizard';
 import { useUserProfile } from './hooks/useUserProfile';
 import { useSettings } from './hooks/useSettings';
@@ -13,9 +14,15 @@ import { useSettings } from './hooks/useSettings';
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
   { id: 'nutrition', label: 'Food', icon: Utensils },
-  { id: 'coach', label: 'Coach', icon: MessageCircle },
   { id: 'schedule', label: 'Schedule', icon: Calendar },
-  { id: 'progress', label: 'Progress', icon: TrendingUp },
+  { id: 'doc', label: 'Doc', icon: Brain },
+  { id: 'more', label: 'More', icon: MoreHorizontal },
+];
+
+const MORE_ITEMS = [
+  { id: 'coach', label: 'Coach', icon: MessageCircle, desc: 'AI fitness coach' },
+  { id: 'progress', label: 'Progress', icon: TrendingUp, desc: 'Charts & stats' },
+  { id: 'settings', label: 'Settings', icon: Settings, desc: 'Profile & config' },
 ];
 
 function App() {
@@ -29,44 +36,44 @@ function App() {
     if (needsOnboarding) return 'onboarding';
     return 'dashboard';
   });
+  const [showMoreDrawer, setShowMoreDrawer] = useState(false);
 
-  // When onboarding completes, go to coach to set up workout plan
-  const handleOnboardingComplete = () => {
-    setActiveView('coach');
-  };
+  const handleOnboardingComplete = () => setActiveView('coach');
 
-  // Redirect to onboarding if profile reset
   useEffect(() => {
     if (needsOnboarding && !needsApiSetup && activeView === 'dashboard') {
       setActiveView('onboarding');
     }
   }, [needsOnboarding, needsApiSetup, activeView]);
 
-  const renderView = () => {
-    // Show onboarding wizard (full screen mode handled below)
-    if (activeView === 'onboarding') {
-      return <OnboardingWizard onComplete={handleOnboardingComplete} />;
-    }
-
-    switch (activeView) {
-      case 'dashboard':
-        return <Dashboard onNavigate={setActiveView} />;
-      case 'nutrition':
-        return <Nutrition />;
-      case 'coach':
-        return <Coach />;
-      case 'schedule':
-        return <Schedule onNavigate={setActiveView} />;
-      case 'progress':
-        return <Progress onNavigate={setActiveView} />;
-      case 'settings':
-        return <SettingsView />;
-      default:
-        return <Dashboard onNavigate={setActiveView} />;
+  const handleNavClick = (id) => {
+    if (id === 'more') {
+      setShowMoreDrawer(true);
+    } else {
+      setActiveView(id);
+      setShowMoreDrawer(false);
     }
   };
 
-  // Full screen onboarding (no nav bar)
+  const handleMoreItemClick = (id) => {
+    setActiveView(id);
+    setShowMoreDrawer(false);
+  };
+
+  const renderView = () => {
+    if (activeView === 'onboarding') return <OnboardingWizard onComplete={handleOnboardingComplete} />;
+    switch (activeView) {
+      case 'dashboard': return <Dashboard onNavigate={setActiveView} />;
+      case 'nutrition': return <Nutrition />;
+      case 'coach': return <Coach />;
+      case 'schedule': return <Schedule onNavigate={setActiveView} />;
+      case 'progress': return <Progress onNavigate={setActiveView} />;
+      case 'settings': return <SettingsView />;
+      case 'doc': return <Doc />;
+      default: return <Dashboard onNavigate={setActiveView} />;
+    }
+  };
+
   if (activeView === 'onboarding') {
     return (
       <div className="flex flex-col h-full bg-bg">
@@ -75,19 +82,34 @@ function App() {
     );
   }
 
+  const isNavTab = NAV_ITEMS.slice(0, 4).some(i => i.id === activeView);
+  const showCoachBubble = activeView !== 'doc' && activeView !== 'coach' && activeView !== 'settings' && activeView !== 'onboarding';
+
   return (
     <div className="flex flex-col h-full bg-bg">
       <main className="flex-1 overflow-y-auto pb-20">
         {renderView()}
       </main>
 
+      {/* Floating Coach bubble */}
+      {showCoachBubble && (
+        <button
+          onClick={() => setActiveView('coach')}
+          className="fixed bottom-20 right-4 z-40 w-12 h-12 bg-accent rounded-full flex items-center justify-center shadow-lg"
+          title="Ask Coach"
+        >
+          <MessageCircle size={22} className="text-bg" />
+        </button>
+      )}
+
+      {/* Bottom nav */}
       <nav className="fixed bottom-0 left-0 right-0 h-16 bg-surface border-t border-border flex items-center justify-around px-2 z-50">
         {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
-          const isActive = activeView === id;
+          const isActive = id === 'more' ? showMoreDrawer : activeView === id;
           return (
             <button
               key={id}
-              onClick={() => setActiveView(id)}
+              onClick={() => handleNavClick(id)}
               className={`relative flex flex-col items-center justify-center flex-1 h-full transition-colors ${
                 isActive ? 'text-accent' : 'text-text-muted hover:text-text'
               }`}
@@ -98,6 +120,45 @@ function App() {
           );
         })}
       </nav>
+
+      {/* More drawer */}
+      {showMoreDrawer && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/50"
+            onClick={() => setShowMoreDrawer(false)}
+          />
+          <div className="fixed bottom-16 left-0 right-0 z-50 bg-surface border-t border-border rounded-t-2xl p-4 pb-6">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm font-medium text-text-muted">More</span>
+              <button onClick={() => setShowMoreDrawer(false)} className="p-1 text-text-muted">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-2">
+              {MORE_ITEMS.map(({ id, label, icon: Icon, desc }) => (
+                <button
+                  key={id}
+                  onClick={() => handleMoreItemClick(id)}
+                  className={`w-full flex items-center gap-4 p-3 rounded-xl text-left transition-colors ${
+                    activeView === id ? 'bg-accent/10 text-accent' : 'bg-bg text-text hover:bg-surface-light'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    activeView === id ? 'bg-accent/20' : 'bg-surface-light'
+                  }`}>
+                    <Icon size={20} />
+                  </div>
+                  <div>
+                    <div className="font-medium text-sm">{label}</div>
+                    <div className="text-xs text-text-muted">{desc}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
