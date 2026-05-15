@@ -28,7 +28,7 @@ const SCHEDULE_TYPES = [
   { value: 'custom', label: 'Custom', desc: 'Set your own cycle length' },
 ];
 
-export default function OnboardingWizard({ onComplete }) {
+export default function OnboardingWizard({ onComplete, onSkip }) {
   const { profile, updateProfile } = useUserProfile();
   const { aiSettings, updateAISettings } = useSettings();
   const [step, setStep] = useState(0);
@@ -516,6 +516,15 @@ Please do two things:
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b border-border">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs text-text-muted">Setup</span>
+          <button
+            onClick={() => onSkip?.()}
+            className="text-xs text-text-muted underline underline-offset-2"
+          >
+            Restore backup instead
+          </button>
+        </div>
         <div className="flex items-center justify-between mb-2">
           {STEPS.map((s, i) => {
             const Icon = s.icon;

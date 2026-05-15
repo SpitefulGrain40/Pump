@@ -36,6 +36,7 @@ function App() {
   const [showCoachModal, setShowCoachModal] = useState(false);
 
   const handleOnboardingComplete = () => setActiveView('coach');
+  const handleOnboardingSkip = () => setActiveView('settings');
 
   useEffect(() => {
     if (needsOnboarding && activeView === 'dashboard') {
@@ -65,7 +66,7 @@ function App() {
   };
 
   const renderView = () => {
-    if (activeView === 'onboarding') return <OnboardingWizard onComplete={handleOnboardingComplete} />;
+    if (activeView === 'onboarding') return <OnboardingWizard onComplete={handleOnboardingComplete} onSkip={handleOnboardingSkip} />;
     switch (activeView) {
       case 'dashboard': return <Dashboard onNavigate={setActiveView} onOpenCoach={() => setShowCoachModal(true)} />;
       case 'nutrition': return <Nutrition />;
@@ -81,7 +82,7 @@ function App() {
   if (activeView === 'onboarding') {
     return (
       <div className="flex flex-col h-full bg-bg">
-        <OnboardingWizard onComplete={handleOnboardingComplete} />
+        <OnboardingWizard onComplete={handleOnboardingComplete} onSkip={handleOnboardingSkip} />
       </div>
     );
   }
