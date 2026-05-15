@@ -227,7 +227,7 @@ export function buildOnboardingPrompt(profile) {
   const hasWaist = profile.waistCircumference !== null && profile.waistCircumference > 0;
   const hasHips = profile.hipCircumference !== null || profile.gender === 'male';
   const hasTarget = profile.targetWeight !== null && profile.targetDate !== null;
-  const hasSchedule = profile.schedulePattern?.weekAStart !== null;
+  const hasSchedule = profile.schedulePattern?.cycleStart !== null || profile.schedulePattern?.weekAStart !== null;
 
   // Build status of what's collected
   const collected = [];
@@ -268,10 +268,9 @@ export function buildOnboardingPrompt(profile) {
   if (profile.physicalNotes) collected.push(`Physical notes: ${profile.physicalNotes}`);
   else if (hasTarget) missing.push('any injuries or physical limitations (or "none")');
 
-  if (hasSchedule) collected.push(`Week A starts: ${profile.schedulePattern.weekAStart}`);
+  if (hasSchedule) collected.push(`Schedule: ${profile.schedulePattern?.type || 'alternating'} (${profile.schedulePattern?.labels?.join('/') || 'A/B'})`);
   else if (hasTarget && (profile.physicalNotes !== '' || profile.physicalNotes === '')) {
-    // Only ask for schedule after physical notes
-    if (profile.physicalNotes !== undefined) missing.push('Week A start date (Monday of a week when you have the kids)');
+    if (profile.physicalNotes !== undefined) missing.push('schedule type and start date');
   }
 
   const collectedStr = collected.length > 0 ? collected.join('\n- ') : 'Nothing yet';
@@ -306,7 +305,7 @@ Field mapping:
 - target weight → "targetWeight" (number in kg)
 - target date → "targetDate" (string "YYYY-MM-DD")
 - injuries/limitations → "physicalNotes" (string, can be "None")
-- week A start → "schedulePattern" ({"weekAStart": "YYYY-MM-DD"})
+- schedule → "schedulePattern" ({"type": "alternating", "cycleLength": 14, "cycleStart": "YYYY-MM-DD", "labels": ["A","B"], "description": ""})
 `}
 
 ## MEASUREMENT TIPS (use when relevant)
@@ -335,7 +334,6 @@ export function buildCoachSystemPrompt(profile, context, performance = null, mem
   const daysToGoal = profile.targetDate ? differenceInDays(parseISO(profile.targetDate), new Date()) : null;
   const weightToLose = profile.currentWeight && profile.targetWeight ? profile.currentWeight - profile.targetWeight : null;
   const weekType = context.weekType || 'A';
-  const nextWeekType = weekType === 'A' ? 'B' : 'A';
 
   // Format memories section
   const memoriesSection = formatMemories(memories);
@@ -369,9 +367,17 @@ export function buildCoachSystemPrompt(profile, context, performance = null, mem
 `;
   }
 
-  // Format week templates
-  const weekATemplate = formatWeekTemplate(profile.weekTemplates?.A);
-  const weekBTemplate = formatWeekTemplate(profile.weekTemplates?.B);
+  // Format week templates — support any labels (A/B or custom)
+  const weekLabels = profile.schedulePattern?.labels || ['A', 'B'];
+  const weekTemplatesSection = weekLabels.map(label => {
+    const template = profile.weekTemplates?.[label];
+    if (!template) return '';
+    return `### Week ${label}:\n${formatWeekTemplate(template)}`;
+  }).filter(Boolean).join('\n\n');
+
+  const scheduleDescription = profile.schedulePattern?.description
+    ? `\nSchedule pattern: ${profile.schedulePattern.description}`
+    : '';
 
   return `You are Coach, an expert fitness coach and nutritionist for the Pump app. You are knowledgeable, encouraging, and concise.
 
@@ -393,7 +399,7 @@ ${weightToLose && daysToGoal ? `- Required Rate: ~${((weightToLose / daysToGoal)
 
 ## TODAY'S CONTEXT
 - Date: ${format(new Date(), 'EEEE, MMMM d, yyyy')}
-- Week Type: ${weekType} (next week is ${nextWeekType})
+- Current schedule phase: ${weekType}${scheduleDescription}
 ${context.todayWorkout ? `- Today's Workout: ${context.todayWorkout}` : '- No workout scheduled today'}
 ${context.todayNutrition ? `- Today's Nutrition: ${context.todayNutrition.calories} kcal, ${context.todayNutrition.protein}g protein` : '- No meals logged today'}
 
@@ -404,16 +410,12 @@ ${performanceSection}
 
 ## WEEK TEMPLATES (User's preferred patterns)
 
-### Week A (more solo time):
-${weekATemplate}
-
-### Week B (more Nyxie time - different Fri/Sat/Sun):
-${weekBTemplate}
+${weekTemplatesSection || 'No templates configured yet.'}
 
 ## SCHEDULE PLANNING RULES
 
 When creating upcoming schedules:
-1. **Use the Week A or B template as the BASE** - don't reinvent the wheel
+1. **Use the week template as the BASE** - don't reinvent the wheel
 2. **If user is ON TRACK** (within 0.2kg/week of required rate):
    - "If it ain't broke, don't fix it"
    - Keep the template exactly unless user requests changes
@@ -429,7 +431,6 @@ When creating upcoming schedules:
 5. **If completion rate < 70%:**
    - Suggest simplifying (fewer sessions, not harder ones)
    - Consider if the schedule is too ambitious
-6. **Always include** the template's notes (bed times, kitchen rules, Nyxie/Solo indicators)
 
 ## YOUR CAPABILITIES
 When the user wants to log or update data, include these commands in your response:
@@ -449,8 +450,11 @@ When the user wants to log or update data, include these commands in your respon
   - template: "push" | "pull" | "legs" | "bike" | "core"
   - For remove: {"template": "push", "action": "remove", "exerciseName": "Exercise Name"}
   - For update: {"template": "push", "action": "update", "exerciseName": "Exercise Name", "updates": {"weight": 25}}
+- **Replace full template**: [SET_TEMPLATE: {"template": "push", "exercises": [{"name": "Barbell Bench Press", "sets": 4, "reps": 8, "weight": 80}, ...]}]
+  Use ONLY to replace all exercises in a workout template (push/pull/legs/core/bike). NOT for scheduling days.
 
 ### Schedule Commands
+Use [SET_SCHEDULE: ...] to assign workout types, calorie targets, and notes to specific calendar dates. This is how you populate the user's schedule view.
 Set full day schedule with lunch/evening sessions, calories, protein, and notes:
 [SET_SCHEDULE: {
   "2026-05-08": {
@@ -480,8 +484,25 @@ When creating schedules, include:
 - evening.type and evening.notes for evening activity
 - calories target for the day (from template or adjusted)
 - protein target for the day (from template or adjusted)
-- notes for daily standards (sleep time, kitchen rules, Nyxie/Solo, etc.)
-- **IMPORTANT**: Only output ONE WEEK at a time (7 days max) to avoid response truncation
+- notes for daily standards (sleep time, kitchen rules, etc.)
+- **IMPORTANT**: Only output ONE [SET_SCHEDULE: ...] block per message (14 days max). Do NOT split across multiple messages in one turn.
+- **IMPORTANT**: Keep all notes fields SHORT (under 10 words). Exercise details belong in workout templates, not schedule notes.
+
+### Saving Week Templates
+When the user establishes their recurring weekly pattern, save it to their profile so you can reference it for future schedule planning:
+[UPDATE_PROFILE: {"weekTemplates": {
+  "On Shift": {
+    "mon": {"lunch": {"type": "push", "notes": "Gym between shouts"}, "calories": 3800},
+    "tue": {"lunch": {"type": "pull", "notes": "Gym between shouts"}, "calories": 3800}
+  },
+  "Off Shift": {
+    "mon": {"lunch": {"type": "legs", "notes": "Home gym"}, "calories": 3500},
+    "tue": {"lunch": {"type": "rest", "notes": "Rest day"}, "calories": 3200}
+  }
+}}]
+- Keys match the schedule labels (e.g. "On Shift"/"Off Shift", "A"/"B", or "Week" for fixed)
+- Day keys: mon, tue, wed, thu, fri, sat, sun
+- Each day can have lunch, evening, calories, protein, notes
 
 ## FORMATTING RULES
 - Be concise and direct. No fluff.
@@ -570,12 +591,22 @@ export function buildContextFromState(profile, nutritionLogs, workoutLogs, worko
     weightTrend = `\n## WEIGHT TREND (last ${recentWeights.length} entries)\n${change > 0 ? '+' : ''}${change.toFixed(1)} kg`;
   }
 
-  const startDate = profile.schedulePattern?.weekAStart
-    ? parseISO(profile.schedulePattern.weekAStart)
-    : new Date();
-  const daysDiff = differenceInDays(today, startDate);
-  const weekNumber = Math.floor(daysDiff / 7);
-  const weekType = weekNumber % 2 === 0 ? 'A' : 'B';
+  // Calculate current schedule phase using new flexible format
+  let weekType = 'A';
+  const sp = profile.schedulePattern;
+  if (sp?.type && sp?.cycleStart && sp?.labels?.length > 0) {
+    const startDate = parseISO(sp.cycleStart);
+    const daysDiff = differenceInDays(today, startDate);
+    const positionInCycle = ((daysDiff % sp.cycleLength) + sp.cycleLength) % sp.cycleLength;
+    const weekIndex = Math.floor(positionInCycle / 7);
+    weekType = sp.labels[weekIndex] ?? sp.labels[0];
+  } else if (sp?.weekAStart) {
+    // Legacy format
+    const startDate = parseISO(sp.weekAStart);
+    const daysDiff = differenceInDays(today, startDate);
+    const weekNumber = Math.floor(daysDiff / 7);
+    weekType = weekNumber % 2 === 0 ? 'A' : 'B';
+  }
 
   // Build performance metrics
   const performance = buildPerformanceContext(completedDays, weightHistory, nutritionLogs, workoutSchedule, profile);
@@ -593,7 +624,7 @@ export function buildContextFromState(profile, nutritionLogs, workoutLogs, worko
 export function parseAICommands(content) {
   const commands = [];
 
-  // Helper to extract balanced JSON from content
+  // Extract first JSON object after a marker
   const extractJSON = (str, startMarker) => {
     const startIdx = str.indexOf(startMarker);
     if (startIdx === -1) return null;
@@ -627,11 +658,42 @@ export function parseAICommands(content) {
     }
   };
 
+  // Extract ALL JSON objects for a repeated marker (e.g. multiple UPDATE_TEMPLATE blocks)
+  const extractAllJSON = (str, startMarker) => {
+    const results = [];
+    let searchFrom = 0;
+    while (true) {
+      const startIdx = str.indexOf(startMarker, searchFrom);
+      if (startIdx === -1) break;
+
+      const jsonStart = str.indexOf('{', startIdx);
+      if (jsonStart === -1) break;
+
+      let depth = 0;
+      let jsonEnd = -1;
+      for (let i = jsonStart; i < str.length; i++) {
+        if (str[i] === '{') depth++;
+        else if (str[i] === '}') {
+          depth--;
+          if (depth === 0) { jsonEnd = i + 1; break; }
+        }
+      }
+      if (jsonEnd === -1) break;
+
+      const jsonStr = str.slice(jsonStart, jsonEnd);
+      try {
+        results.push(JSON.parse(jsonStr));
+      } catch (e) {
+        console.error(`Failed to parse JSON for ${startMarker}:`, e.message);
+      }
+      searchFrom = jsonEnd;
+    }
+    return results;
+  };
+
   // Parse each command type
-  const mealData = extractJSON(content, '[LOG_MEAL:');
-  if (mealData) {
-    commands.push({ type: 'LOG_MEAL', data: mealData });
-  }
+  const mealDataList = extractAllJSON(content, '[LOG_MEAL:');
+  mealDataList.forEach(data => commands.push({ type: 'LOG_MEAL', data }));
 
   const weightData = extractJSON(content, '[LOG_WEIGHT:');
   if (weightData) {
@@ -658,24 +720,23 @@ export function parseAICommands(content) {
     commands.push({ type: 'UPDATE_PROFILE', data: profileData });
   }
 
-  const saveMemoryData = extractJSON(content, '[SAVE_MEMORY:');
-  if (saveMemoryData) {
-    commands.push({ type: 'SAVE_MEMORY', data: saveMemoryData });
-  }
+  const saveMemoryDataList = extractAllJSON(content, '[SAVE_MEMORY:');
+  saveMemoryDataList.forEach(data => commands.push({ type: 'SAVE_MEMORY', data }));
 
   const forgetMemoryData = extractJSON(content, '[FORGET_MEMORY:');
   if (forgetMemoryData) {
     commands.push({ type: 'FORGET_MEMORY', data: forgetMemoryData });
   }
 
-  const templateData = extractJSON(content, '[UPDATE_TEMPLATE:');
-  if (templateData) {
-    commands.push({ type: 'UPDATE_TEMPLATE', data: templateData });
-  }
+  const templateDataList = extractAllJSON(content, '[UPDATE_TEMPLATE:');
+  templateDataList.forEach(data => commands.push({ type: 'UPDATE_TEMPLATE', data }));
+
+  const setTemplateDataList = extractAllJSON(content, '[SET_TEMPLATE:');
+  setTemplateDataList.forEach(data => commands.push({ type: 'SET_TEMPLATE', data }));
 
   // Clean content - remove all command blocks
   let cleanContent = content;
-  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE'];
+  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE', 'SET_TEMPLATE'];
 
   for (const cmd of commandPatterns) {
     const marker = `[${cmd}:`;

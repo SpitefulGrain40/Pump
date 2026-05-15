@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, Check, Trophy, Play, Pause, RotateCcw, MessageCircle } from 'lucide-react';
+import { X, Check, Trophy, Play, Pause, RotateCcw, MessageCircle, ChevronDown } from 'lucide-react';
 import { useWorkoutLogs } from '../hooks/useWorkoutLogs';
+import Coach from './Coach';
 import { format } from 'date-fns';
 
 function parseWeight(weightStr) {
@@ -10,7 +11,7 @@ function parseWeight(weightStr) {
   return match ? parseFloat(match[1]) : 0;
 }
 
-export default function WorkoutLogger({ workout, onClose, onComplete }) {
+export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoach }) {
   const { logWorkout, completeWorkout, getWorkoutForDate, getExerciseHistory } = useWorkoutLogs();
   const [exercises, setExercises] = useState([]);
   const [currentExercise, setCurrentExercise] = useState(0);
@@ -19,9 +20,24 @@ export default function WorkoutLogger({ workout, onClose, onComplete }) {
   const [restTime, setRestTime] = useState(90);
   const [newPRs, setNewPRs] = useState([]);
   const [isComplete, setIsComplete] = useState(false);
+  const [showCoach, setShowCoach] = useState(false);
 
   useEffect(() => {
     if (workout?.exercises) {
+      const workoutDate = workout.date || format(new Date(), 'yyyy-MM-dd');
+
+      // Restore draft if one exists for this date
+      try {
+        const saved = localStorage.getItem('pump-workout-draft');
+        if (saved) {
+          const draft = JSON.parse(saved);
+          if (draft.date === workoutDate && Array.isArray(draft.exercises)) {
+            setExercises(draft.exercises);
+            return;
+          }
+        }
+      } catch {}
+
       const exerciseData = workout.exercises.map((ex) => {
         const history = getExerciseHistory(ex.name, 1);
         const prev = history[0] || null;
@@ -79,6 +95,11 @@ export default function WorkoutLogger({ workout, onClose, onComplete }) {
       setTimer(restTime);
       setIsTimerRunning(true);
     }
+
+    // Auto-save progress to localStorage on every set tick
+    const workoutDate = workout.date || format(new Date(), 'yyyy-MM-dd');
+    const draft = { date: workoutDate, exercises: updated, savedAt: new Date().toISOString() };
+    localStorage.setItem('pump-workout-draft', JSON.stringify(draft));
   };
 
   const handleValueChange = (exerciseIndex, setIndex, field, value) => {
@@ -98,6 +119,7 @@ export default function WorkoutLogger({ workout, onClose, onComplete }) {
     const prs = completeWorkout(existingWorkout.id, exercises);
     setNewPRs(prs);
     setIsComplete(true);
+    localStorage.removeItem('pump-workout-draft');
   };
 
   const handleDone = () => {
@@ -105,6 +127,10 @@ export default function WorkoutLogger({ workout, onClose, onComplete }) {
       onComplete(exercises, newPRs);
     }
     onClose();
+    // Open Coach modal after closing logger, if available
+    if (onOpenCoach) {
+      onOpenCoach();
+    }
   };
 
   const formatTime = (seconds) => {
@@ -115,7 +141,7 @@ export default function WorkoutLogger({ workout, onClose, onComplete }) {
 
   if (isComplete) {
     return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center z-[60] p-4">
+      <div className="fixed inset-0 bg-black flex items-center justify-center z-[70] p-4">
         <div className="bg-surface rounded-2xl w-full max-w-sm p-6 text-center">
           <div className="w-16 h-16 bg-accent/20 rounded-full flex items-center justify-center mx-auto mb-4">
             <Check size={32} className="text-accent" />
@@ -154,7 +180,7 @@ export default function WorkoutLogger({ workout, onClose, onComplete }) {
   const totalSets = currentEx?.planned.sets || 0;
 
   return (
-    <div className="fixed inset-0 bg-black flex flex-col z-[60]">
+    <div className="fixed inset-0 bg-black flex flex-col z-[70]">
       <div className="bg-black p-4 flex items-center justify-between">
         <div>
           <h2 className="font-semibold">{workout.name}</h2>
@@ -162,9 +188,11 @@ export default function WorkoutLogger({ workout, onClose, onComplete }) {
             Exercise {currentExercise + 1} of {exercises.length}
           </p>
         </div>
-        <button onClick={onClose} className="text-text-muted hover:text-text">
-          <X size={24} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={onClose} className="text-text-muted hover:text-text">
+            <X size={24} />
+          </button>
+        </div>
       </div>
 
       {/* Rest Timer */}
@@ -299,6 +327,36 @@ export default function WorkoutLogger({ workout, onClose, onComplete }) {
           </button>
         )}
       </div>
+
+      {/* Coach floating bubble — same as rest of app */}
+      {!showCoach && (
+        <button
+          onClick={() => setShowCoach(true)}
+          className="fixed bottom-20 right-4 z-[75] w-12 h-12 bg-accent rounded-full flex items-center justify-center shadow-lg"
+          title="Ask Coach"
+        >
+          <MessageCircle size={22} className="text-bg" />
+        </button>
+      )}
+
+      {/* Coach modal — slides up over workout */}
+      {showCoach && (
+        <div className="fixed inset-0 z-[80] flex flex-col bg-bg">
+          <div className="flex items-center justify-between px-4 pt-3 pb-1 border-b border-border">
+            <button
+              onClick={() => setShowCoach(false)}
+              className="p-2 text-text-muted hover:text-text rounded-lg"
+            >
+              <ChevronDown size={22} />
+            </button>
+            <span className="text-xs text-text-muted">Coach</span>
+            <div className="w-10" />
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <Coach onClose={() => setShowCoach(false)} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

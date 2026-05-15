@@ -71,17 +71,25 @@ export function calculateTDEE(gender, weight, height, age, activityLevel = 'mode
 }
 
 /**
- * Calculate recommended calorie deficit for weight loss
- * Safe deficit is 500-1000 kcal/day (0.5-1kg/week loss)
+ * Calculate calorie targets based on goal direction.
+ * weeklyChangeTarget is in kg/week; positive = gain, negative = loss.
+ * When goalDirection is 'gain', applies a surplus; 'loss' applies a deficit; 'maintain' targets TDEE.
  */
-export function calculateCalorieTargets(tdee, weeklyLossTarget = 0.75) {
+export function calculateCalorieTargets(tdee, weeklyChangeTarget = 0.75, goalDirection = 'loss') {
   if (!tdee) return { min: null, max: null };
 
-  // 1kg fat ≈ 7700 kcal, so weekly target * 7700 / 7 = daily deficit
-  const dailyDeficit = (weeklyLossTarget * 7700) / 7;
-  const targetCalories = tdee - dailyDeficit;
+  // 1kg ≈ 7700 kcal, so weekly target * 7700 / 7 = daily adjustment
+  const dailyAdjustment = (Math.abs(weeklyChangeTarget) * 7700) / 7;
 
-  // Allow a range of ±100 kcal
+  let targetCalories;
+  if (goalDirection === 'gain') {
+    targetCalories = tdee + dailyAdjustment;
+  } else if (goalDirection === 'loss') {
+    targetCalories = tdee - dailyAdjustment;
+  } else {
+    targetCalories = tdee;
+  }
+
   return {
     min: Math.round(targetCalories - 100),
     max: Math.round(targetCalories + 100),

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, Utensils, Calendar, Brain, MoreHorizontal, MessageCircle, TrendingUp, Settings, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { LayoutDashboard, Utensils, Calendar, Brain, MoreHorizontal, MessageCircle, TrendingUp, Settings, X, ChevronDown } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Coach from './components/Coach';
 import Schedule from './components/Schedule';
@@ -9,7 +9,6 @@ import Nutrition from './components/Nutrition';
 import Doc from './components/Doc';
 import OnboardingWizard from './components/OnboardingWizard';
 import { useUserProfile } from './hooks/useUserProfile';
-import { useSettings } from './hooks/useSettings';
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
@@ -27,24 +26,22 @@ const MORE_ITEMS = [
 
 function App() {
   const { profile } = useUserProfile();
-  const { isConfigured } = useSettings();
   const needsOnboarding = !profile.onboardingComplete;
-  const needsApiSetup = !isConfigured();
 
   const [activeView, setActiveView] = useState(() => {
-    if (needsApiSetup) return 'settings';
     if (needsOnboarding) return 'onboarding';
     return 'dashboard';
   });
   const [showMoreDrawer, setShowMoreDrawer] = useState(false);
+  const [showCoachModal, setShowCoachModal] = useState(false);
 
   const handleOnboardingComplete = () => setActiveView('coach');
 
   useEffect(() => {
-    if (needsOnboarding && !needsApiSetup && activeView === 'dashboard') {
+    if (needsOnboarding && activeView === 'dashboard') {
       setActiveView('onboarding');
     }
-  }, [needsOnboarding, needsApiSetup, activeView]);
+  }, [needsOnboarding, activeView]);
 
   const handleNavClick = (id) => {
     if (id === 'more') {
@@ -52,21 +49,28 @@ function App() {
     } else {
       setActiveView(id);
       setShowMoreDrawer(false);
+      setShowCoachModal(false);
     }
   };
 
   const handleMoreItemClick = (id) => {
     setActiveView(id);
     setShowMoreDrawer(false);
+    setShowCoachModal(false);
+  };
+
+  const handleCoachBubbleClick = () => {
+    setShowCoachModal(true);
+    setShowMoreDrawer(false);
   };
 
   const renderView = () => {
     if (activeView === 'onboarding') return <OnboardingWizard onComplete={handleOnboardingComplete} />;
     switch (activeView) {
-      case 'dashboard': return <Dashboard onNavigate={setActiveView} />;
+      case 'dashboard': return <Dashboard onNavigate={setActiveView} onOpenCoach={() => setShowCoachModal(true)} />;
       case 'nutrition': return <Nutrition />;
       case 'coach': return <Coach />;
-      case 'schedule': return <Schedule onNavigate={setActiveView} />;
+      case 'schedule': return <Schedule onNavigate={setActiveView} onOpenCoach={() => setShowCoachModal(true)} />;
       case 'progress': return <Progress onNavigate={setActiveView} />;
       case 'settings': return <SettingsView />;
       case 'doc': return <Doc />;
@@ -82,8 +86,9 @@ function App() {
     );
   }
 
-  const isNavTab = NAV_ITEMS.slice(0, 4).some(i => i.id === activeView);
-  const showCoachBubble = activeView !== 'doc' && activeView !== 'coach' && activeView !== 'settings' && activeView !== 'onboarding';
+  // Hide floating bubble on doc, settings, onboarding, and when coach modal is open
+  // Also hide when navigated to coach via More drawer
+  const showCoachBubble = activeView !== 'doc' && activeView !== 'coach' && activeView !== 'settings' && activeView !== 'onboarding' && !showCoachModal;
 
   return (
     <div className="flex flex-col h-full bg-bg">
@@ -94,12 +99,32 @@ function App() {
       {/* Floating Coach bubble */}
       {showCoachBubble && (
         <button
-          onClick={() => setActiveView('coach')}
+          onClick={handleCoachBubbleClick}
           className="fixed bottom-20 right-4 z-40 w-12 h-12 bg-accent rounded-full flex items-center justify-center shadow-lg"
           title="Ask Coach"
         >
           <MessageCircle size={22} className="text-bg" />
         </button>
+      )}
+
+      {/* Coach modal overlay — slide up over current tab */}
+      {showCoachModal && (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-bg animate-slide-up">
+          <div className="flex items-center justify-between px-4 pt-3 pb-1 border-b border-border">
+            <button
+              onClick={() => setShowCoachModal(false)}
+              className="p-2 text-text-muted hover:text-text rounded-lg"
+              aria-label="Close Coach"
+            >
+              <ChevronDown size={22} />
+            </button>
+            <span className="text-xs text-text-muted">Coach</span>
+            <div className="w-10" />
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <Coach onClose={() => setShowCoachModal(false)} />
+          </div>
+        </div>
       )}
 
       {/* Bottom nav */}

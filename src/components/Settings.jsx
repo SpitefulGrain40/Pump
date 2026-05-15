@@ -241,7 +241,7 @@ export default function Settings() {
       <Section
         icon={Bot}
         title="AI Provider"
-        description={aiSettings.provider === 'openrouter' ? 'OpenRouter' : 'Anthropic Direct'}
+        description={aiSettings.provider === 'cli' ? 'CLI (local dev)' : aiSettings.provider === 'openrouter' ? 'OpenRouter' : 'Anthropic Direct'}
         isOpen={activeSection === 'ai'}
         onToggle={() => setActiveSection(activeSection === 'ai' ? null : 'ai')}
       >
@@ -268,9 +268,29 @@ export default function Settings() {
             >
               Anthropic
             </button>
+            <button
+              onClick={() => updateAISettings({ provider: 'cli' })}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                aiSettings.provider === 'cli'
+                  ? 'bg-warning/80 text-bg'
+                  : 'bg-surface text-text-muted'
+              }`}
+            >
+              CLI
+            </button>
           </div>
 
-          {/* API Key */}
+          {/* CLI info banner */}
+          {aiSettings.provider === 'cli' && (
+            <div className="bg-warning/10 border border-warning/30 rounded-lg p-3 text-xs text-text-muted space-y-1">
+              <p className="font-medium text-warning">Local dev mode — no API tokens used</p>
+              <p>Run the proxy before using Coach:</p>
+              <code className="block bg-bg rounded px-2 py-1 text-text font-mono">node scripts/pump-cli-proxy.js</code>
+            </div>
+          )}
+
+          {/* API Key — hidden for CLI */}
+          {aiSettings.provider !== 'cli' && (
           <div>
             <label className="text-sm text-text-muted block mb-1">API Key</label>
             <div className="flex gap-2">
@@ -292,6 +312,7 @@ export default function Settings() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Model Selection */}
           <div>

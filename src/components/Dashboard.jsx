@@ -28,7 +28,7 @@ const chartOptions = {
   },
 };
 
-export default function Dashboard({ onNavigate }) {
+export default function Dashboard({ onNavigate, onOpenCoach }) {
   const { profile, getDaysToGoal, getProgress, getCalorieTarget, getProteinTarget, getWeightLost } = useUserProfile();
   const { getTodaysTotals, getTodaysMeals, removeMeal, getDailyTotals } = useNutritionLogs();
   const { schedule, getWorkoutForDate, getWorkoutTemplate } = useWorkoutSchedule();
@@ -524,6 +524,7 @@ export default function Dashboard({ onNavigate }) {
         <WorkoutLogger
           workout={todayTemplate}
           onClose={() => setShowWorkoutLogger(false)}
+          onOpenCoach={onOpenCoach}
         />
       )}
     </div>

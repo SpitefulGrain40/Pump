@@ -211,12 +211,23 @@ export function useWorkoutTemplates() {
     });
   };
 
+  const setTemplate = (templateName, exercises) => {
+    setTemplates(prev => ({
+      ...prev,
+      [templateName]: {
+        ...(prev[templateName] || WORKOUT_TEMPLATES[templateName] || {}),
+        exercises,
+      }
+    }));
+  };
+
   return {
     templates,
     getTemplate,
     addExercise,
     removeExercise,
     updateExercise,
+    setTemplate,
     setTemplates,
   };
 }

@@ -6,7 +6,7 @@ import {
 import { useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { format, addDays, startOfWeek, isToday, parseISO, isBefore, getDay } from 'date-fns';
+import { format, addDays, startOfWeek, isToday, parseISO, isBefore, getDay, differenceInDays } from 'date-fns';
 import WorkoutLogger from './WorkoutLogger';
 
 const ACTIVITY_CONFIG = {
@@ -27,7 +27,7 @@ const ACTIVITY_CONFIG = {
   family: { label: 'Family', icon: Coffee, color: 'bg-rose-500/20 text-rose-400', emoji: '👨‍👧' },
 };
 
-export default function Schedule({ onNavigate }) {
+export default function Schedule({ onNavigate, onOpenCoach }) {
   const { schedule, setSchedule, getFortnightSchedule } = useWorkoutSchedule();
   const { getTemplate } = useWorkoutTemplates();
   const { profile, getWeekTypeForDate } = useUserProfile();
@@ -43,7 +43,28 @@ export default function Schedule({ onNavigate }) {
 
   const days = getFortnightSchedule(startDate);
   const firstWeekType = getWeekTypeForDate(startDate);
-  const secondWeekType = firstWeekType === 'A' ? 'B' : 'A';
+
+  // Per-day phase label — for day-level cycles (e.g. 4-on/4-off with cycleLength 8)
+  const getDayPhase = (dateStr) => {
+    const sp = profile.schedulePattern;
+    if (!sp?.cycleStart || !sp?.labels?.length || !sp?.cycleLength) return null;
+    const date = parseISO(dateStr);
+    const startDate = parseISO(sp.cycleStart);
+    const daysDiff = differenceInDays(date, startDate);
+    const posInCycle = ((daysDiff % sp.cycleLength) + sp.cycleLength) % sp.cycleLength;
+    const daysPerPhase = sp.cycleLength / sp.labels.length;
+    const phaseIndex = Math.floor(posInCycle / daysPerPhase);
+    return sp.labels[phaseIndex] ?? sp.labels[0];
+  };
+
+  // Whether this pattern uses day-level phases (cycleLength < 14, e.g. 4-on/4-off = 8)
+  const isDayLevelCycle = profile.schedulePattern?.cycleLength > 0 && profile.schedulePattern?.cycleLength < 14;
+  // Derive second week label from the schedule pattern labels array
+  const scheduleLabels = profile.schedulePattern?.labels || ['A', 'B'];
+  const firstLabelIdx = scheduleLabels.indexOf(firstWeekType);
+  const secondWeekType = scheduleLabels[(firstLabelIdx + 1) % scheduleLabels.length] ?? firstWeekType;
+  // Only show the cycle label for alternating/custom patterns (not fixed/rotating with day-level shifts)
+  const showCycleLabel = profile.schedulePattern?.type === 'alternating' || profile.schedulePattern?.type === 'custom';
 
   // Check if today falls within the displayed fortnight
   const today = new Date();
@@ -102,7 +123,9 @@ export default function Schedule({ onNavigate }) {
     localStorage.setItem('pump-pending-coach-prompt', prompt);
     setShowPlanningBanner(false);
 
-    if (onNavigate) {
+    if (onOpenCoach) {
+      onOpenCoach();
+    } else if (onNavigate) {
       onNavigate('coach');
     }
   };
@@ -135,40 +158,6 @@ export default function Schedule({ onNavigate }) {
 
   const isCompleted = (dateStr, session = 'lunch') => {
     return completedDays[dateStr]?.[session] || false;
-  };
-
-  // Initialize default schedule if empty
-  useEffect(() => {
-    if (Object.keys(schedule).length === 0) {
-      initializeDefaultSchedule();
-    }
-  }, []);
-
-  const initializeDefaultSchedule = () => {
-    const start = startOfWeek(new Date(), { weekStartsOn: 1 });
-    const newSchedule = {};
-
-    // Week pattern: Mon=Push, Tue=Bike+Skate, Wed=Pull, Thu=Sprints+Core, Fri=Rest, Sat=Ride, Sun=Family
-    const weekPattern = [
-      { lunch: { type: 'push', notes: 'Push + SB Strength (60m)' }, calories: 2300, notes: 'Solo | Bed by 11:30pm' },
-      { lunch: { type: 'bike', notes: 'HIIT 20m (30s/90s x8)' }, evening: { type: 'skate', notes: 'Garage session 30-45m' }, calories: 2300, notes: 'Nyxie Day | Kitchen closed 9pm' },
-      { lunch: { type: 'pull', notes: 'Pull + SB Strength (60m)' }, evening: { type: 'yoga', notes: 'Neck mobility 20m' }, calories: 2300, notes: 'Solo | Bed by 11:30pm' },
-      { lunch: { type: 'bikesprints', notes: 'Hill sprints 4x max' }, evening: { type: 'core', notes: 'Core circuit 15m' }, calories: 2200, notes: 'Nyxie Day | High protein bridge meals' },
-      { lunch: { type: 'rest', notes: 'Recovery day' }, calories: 2200, notes: 'Active recovery only' },
-      { lunch: { type: 'ride', notes: 'Big ride 3-4hrs' }, calories: 2600, notes: 'Long cardio day' },
-      { lunch: { type: 'family', notes: 'Family time' }, evening: { type: 'active', notes: 'Light activity' }, calories: 2300, notes: 'Rest & recovery' },
-    ];
-
-    // Set 2 weeks
-    for (let week = 0; week < 2; week++) {
-      for (let day = 0; day < 7; day++) {
-        const date = addDays(start, week * 7 + day);
-        const dateStr = format(date, 'yyyy-MM-dd');
-        newSchedule[dateStr] = { ...weekPattern[day] };
-      }
-    }
-
-    setSchedule(newSchedule);
   };
 
   const handlePrevWeek = () => setStartDate((d) => addDays(d, -7));
@@ -268,8 +257,10 @@ export default function Schedule({ onNavigate }) {
 
     setActiveWorkout(null);
 
-    // Navigate to Coach
-    if (onNavigate) {
+    // Navigate to Coach (prefer modal)
+    if (onOpenCoach) {
+      onOpenCoach();
+    } else if (onNavigate) {
       onNavigate('coach');
     }
   };
@@ -285,18 +276,32 @@ export default function Schedule({ onNavigate }) {
     const allDone = hasLunch && hasEvening ? (lunchDone && eveningDone) : (hasLunch ? lunchDone : (hasEvening ? eveningDone : false));
     const isPast = isBefore(parseISO(day.date), new Date()) && !dayIsToday;
 
+    // Day-level phase colouring (e.g. 4-on/4-off)
+    const phase = isDayLevelCycle ? getDayPhase(day.date) : null;
+    const sp = profile.schedulePattern;
+    const isOnPhase = phase && sp?.labels && sp.labels.indexOf(phase) === 0;
+    const phaseColor = phase
+      ? (isOnPhase ? 'bg-green-900/40' : 'bg-surface')
+      : '';
+    const phaseDotColor = phase
+      ? (isOnPhase ? 'bg-green-400' : 'bg-zinc-500')
+      : '';
+    const tileBase = phase ? phaseColor : display.color;
+    const todayRing = dayIsToday ? 'ring-2 ring-accent' : '';
+
     return (
       <button
         key={day.date}
         onClick={() => handleDayClick(day)}
-        className={`p-2 rounded-lg text-center transition-all relative ${display.color} ${
-          dayIsToday ? 'ring-2 ring-accent' : ''
-        } ${allDone ? 'opacity-60' : ''}`}
+        className={`p-2 rounded-lg text-center transition-all relative ${tileBase} ${todayRing} ${allDone ? 'opacity-60' : ''}`}
       >
         {allDone && (
           <div className="absolute top-1 right-1">
             <CheckCircle2 size={10} className="text-accent" />
           </div>
+        )}
+        {phase && !allDone && (
+          <div className={`absolute top-1 left-1 w-1.5 h-1.5 rounded-full ${phaseDotColor}`} />
         )}
         <div className="text-xs text-text-muted mb-1">{day.dayOfWeek}</div>
         <div className={`text-sm font-medium ${dayIsToday ? 'text-accent' : ''}`}>
@@ -438,7 +443,8 @@ export default function Schedule({ onNavigate }) {
         <div>
           <h1 className="text-xl font-bold">Schedule</h1>
           <p className="text-sm text-text-muted">
-            Week {getWeekTypeForDate(new Date())} · {profile.name ? `${profile.name.split(' ')[0]}'s` : 'Your'} plan
+            {showCycleLabel ? `${getWeekTypeForDate(new Date())} · ` : ''}{profile.name ? `${profile.name.split(' ')[0]}'s` : 'Your'} plan
+            {profile.schedulePattern?.description ? ` · ${profile.schedulePattern.description}` : ''}
           </p>
         </div>
       </div>
@@ -459,7 +465,7 @@ export default function Schedule({ onNavigate }) {
       {/* Week 1 */}
       <div className="mb-4">
         <h3 className="text-sm text-text-muted mb-2 font-medium">
-          Week {firstWeekType} {isFirstWeekCurrent ? '(Current)' : ''}
+          {showCycleLabel ? firstWeekType : 'This week'}{isFirstWeekCurrent ? ' (Current)' : ''}
         </h3>
         <div className="grid grid-cols-7 gap-1">
           {days.slice(0, 7).map(renderDayCard)}
@@ -469,7 +475,7 @@ export default function Schedule({ onNavigate }) {
       {/* Week 2 */}
       <div className="mb-6">
         <h3 className="text-sm text-text-muted mb-2 font-medium">
-          Week {secondWeekType} {isSecondWeekCurrent ? '(Current)' : ''}
+          {showCycleLabel ? secondWeekType : 'Next week'}{isSecondWeekCurrent ? ' (Current)' : ''}
         </h3>
         <div className="grid grid-cols-7 gap-1">
           {days.slice(7, 14).map(renderDayCard)}
@@ -500,7 +506,7 @@ export default function Schedule({ onNavigate }) {
                   {format(parseISO(selectedDay.date), 'EEEE, MMM d')}
                 </h3>
                 <p className="text-xs text-text-muted">
-                  Week {getWeekTypeForDate(parseISO(selectedDay.date))} {isToday(parseISO(selectedDay.date)) ? '· Today' : ''}
+                  {showCycleLabel ? `${getWeekTypeForDate(parseISO(selectedDay.date))} · ` : ''}{isToday(parseISO(selectedDay.date)) ? 'Today' : format(parseISO(selectedDay.date), 'yyyy')}
                 </p>
               </div>
               <button onClick={() => setShowDayDetail(false)} className="p-2">
@@ -753,6 +759,7 @@ export default function Schedule({ onNavigate }) {
           workout={activeWorkout}
           onClose={handleWorkoutClose}
           onComplete={handleWorkoutComplete}
+          onOpenCoach={onOpenCoach}
         />
       )}
     </div>

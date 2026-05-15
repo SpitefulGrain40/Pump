@@ -21,33 +21,21 @@ export const DEFAULT_USER_PROFILE = {
   physicalNotes: '',
   // Schedule
   schedulePattern: {
-    weekAStart: null,
+    type: 'alternating',     // 'fixed' | 'alternating' | 'rotating' | 'custom'
+    cycleLength: 14,         // days in one full cycle (7=weekly, 14=fortnightly, N=shift)
+    cycleStart: null,        // ISO date string — day 1 of cycle (Monday)
+    labels: ['A', 'B'],     // names for each week/phase
+    description: '',         // optional free text shown in Schedule header
   },
   // Week templates for Coach to reference
   weekTemplates: {
-    A: {
-      mon: { lunch: { type: 'push', notes: 'Push + SB Strength (60m)' }, calories: 2300, notes: 'Solo | Bed by 11:30pm' },
-      tue: { lunch: { type: 'bike', notes: 'HIIT 20m (30s/90s x8)' }, evening: { type: 'skate', notes: 'Garage session 30-45m' }, calories: 2300, notes: 'Nyxie Day | Kitchen closed 9pm' },
-      wed: { lunch: { type: 'pull', notes: 'Pull + SB Strength (60m)' }, calories: 2300, notes: 'Solo | Bed by 11:30pm' },
-      thu: { lunch: { type: 'bikesprints', notes: 'Hill sprints 4x max' }, evening: { type: 'core', notes: 'Core circuit 15m' }, calories: 2200, notes: 'Nyxie Day | High protein bridge meals' },
-      fri: { lunch: { type: 'rest', notes: 'Rest / Family time' }, calories: 2200, notes: 'Recovery day' },
-      sat: { lunch: { type: 'ride', notes: 'Big ride 3-4hrs' }, calories: 2600, notes: 'Long cardio day' },
-      sun: { lunch: { type: 'skate', notes: 'Skate session' }, evening: { type: 'rest', notes: 'Rest' }, calories: 2300, notes: 'Active recovery' },
-    },
-    B: {
-      mon: { lunch: { type: 'push', notes: 'Push + SB Strength (60m)' }, calories: 2300, notes: 'Solo | Bed by 11:30pm' },
-      tue: { lunch: { type: 'bike', notes: 'HIIT 20m (30s/90s x8)' }, evening: { type: 'skate', notes: 'Garage session 30-45m' }, calories: 2300, notes: 'Nyxie Day | Kitchen closed 9pm' },
-      wed: { lunch: { type: 'pull', notes: 'Pull + SB Strength (60m)' }, calories: 2300, notes: 'Solo | Bed by 11:30pm' },
-      thu: { lunch: { type: 'bikesprints', notes: 'Hill sprints 4x max' }, evening: { type: 'core', notes: 'Core circuit 15m' }, calories: 2200, notes: 'Nyxie Day | High protein bridge meals' },
-      fri: { lunch: { type: 'skate', notes: 'Skate session' }, calories: 2300, notes: 'Active day' },
-      sat: { lunch: { type: 'family', notes: 'Family time' }, evening: { type: 'rest', notes: 'Rest' }, calories: 2200, notes: 'Recovery' },
-      sun: { lunch: { type: 'family', notes: 'Family time' }, evening: { type: 'rest', notes: 'Rest' }, calories: 2200, notes: 'Recovery' },
-    },
+    A: {},
+    B: {},
   },
 };
 
 export const DEFAULT_AI_SETTINGS = {
-  provider: 'openrouter',
+  provider: 'anthropic',
   openrouterKey: '',
   anthropicKey: '',
   model: 'anthropic/claude-haiku-4-5-20251001',

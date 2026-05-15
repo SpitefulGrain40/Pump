@@ -1,5 +1,6 @@
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+const CLI_PROXY_URL = 'http://localhost:3141/chat';
 
 function sanitizeKey(key) {
   if (!key) return '';
@@ -112,10 +113,28 @@ export async function sendToAnthropic(apiKey, model, messages, systemPrompt) {
   };
 }
 
+export async function sendToCLI(model, messages, systemPrompt) {
+  const response = await fetch(CLI_PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, systemPrompt, model: model || 'claude-sonnet-4-6' }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `CLI proxy error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return { content: data.content || '', usage: { input: 0, output: 0 } };
+}
+
 export async function sendMessage(settings, messages, systemPrompt) {
   const { provider, openrouterKey, anthropicKey, model, anthropicModel } = settings;
 
-  if (provider === 'openrouter') {
+  if (provider === 'cli') {
+    return sendToCLI(anthropicModel || 'claude-sonnet-4-6', messages, systemPrompt);
+  } else if (provider === 'openrouter') {
     if (!openrouterKey) throw new Error('OpenRouter API key not configured');
     return sendToOpenRouter(openrouterKey, model, messages, systemPrompt);
   } else {

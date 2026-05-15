@@ -13,6 +13,23 @@ export function useUserProfile() {
     }
   }, [profile.weekTemplates, setProfile]);
 
+  // Migrate old weekAStart format to new schedulePattern shape
+  useEffect(() => {
+    const sp = profile.schedulePattern;
+    if (sp && sp.weekAStart && !sp.type) {
+      setProfile(prev => ({
+        ...prev,
+        schedulePattern: {
+          type: 'alternating',
+          cycleLength: 14,
+          cycleStart: sp.weekAStart,
+          labels: ['A', 'B'],
+          description: '',
+        },
+      }));
+    }
+  }, [profile.schedulePattern, setProfile]);
+
   const updateProfile = (updates) => {
     setProfile((prev) => ({ ...prev, ...updates }));
   };
@@ -53,14 +70,28 @@ export function useUserProfile() {
     return getWeekTypeForDate(new Date());
   };
 
+  // Returns the phase label (e.g. 'A', 'B', 'On', 'Off') for any given date
   const getWeekTypeForDate = (date) => {
-    if (!profile.schedulePattern?.weekAStart) {
-      return 'A'; // Default to Week A if not configured
+    const sp = profile.schedulePattern;
+
+    // New format
+    if (sp?.type && sp?.cycleStart && sp?.labels?.length > 0) {
+      const startDate = parseISO(sp.cycleStart);
+      const daysDiff = differenceInDays(date, startDate);
+      const positionInCycle = ((daysDiff % sp.cycleLength) + sp.cycleLength) % sp.cycleLength;
+      const weekIndex = Math.floor(positionInCycle / 7);
+      return sp.labels[weekIndex] ?? sp.labels[0];
     }
-    const startDate = parseISO(profile.schedulePattern.weekAStart);
-    const daysDiff = differenceInDays(date, startDate);
-    const weekNumber = Math.floor(daysDiff / 7);
-    return weekNumber % 2 === 0 ? 'A' : 'B';
+
+    // Legacy format: weekAStart
+    if (sp?.weekAStart) {
+      const startDate = parseISO(sp.weekAStart);
+      const daysDiff = differenceInDays(date, startDate);
+      const weekNumber = Math.floor(daysDiff / 7);
+      return weekNumber % 2 === 0 ? 'A' : 'B';
+    }
+
+    return 'A'; // Default
   };
 
   return {

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Camera, Link, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Link, ChevronDown, ChevronRight, Settings } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
 import { useUserProfile } from '../hooks/useUserProfile';
@@ -83,13 +83,13 @@ function parseMessageWithUrls(content) {
 }
 
 const QUICK_PROMPTS = [
-  { label: 'Plan next 2 weeks', prompt: "Plan my schedule for the next two weeks based on my Week A/B templates." },
+  { label: 'Plan next 2 weeks', prompt: "Plan my schedule for the next two weeks. Use [SET_SCHEDULE: ...] to populate each day with the right workout type, calorie target, and any relevant notes based on my templates and goals." },
   { label: 'Log meal', prompt: "I just ate. Let me describe it and you help me log the calories and protein." },
   { label: 'Today\'s workout', prompt: "What's my workout for today? Walk me through it." },
   { label: 'Am I on track?', prompt: "How am I doing with my weight loss goal? Am I on track?" },
 ];
 
-export default function Coach() {
+export default function Coach({ onClose }) {
   const [messages, setMessages] = useLocalStorage('pump-chat-history', []);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -98,16 +98,25 @@ export default function Coach() {
   const [isSearching, setIsSearching] = useState(false);
   const [pendingImage, setPendingImage] = useState(null);
   const [fetchingUrls, setFetchingUrls] = useState(false);
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [customSystemPrompt, setCustomSystemPrompt] = useLocalStorage('pump-coach-system-prompt', '');
+  const [promptDraft, setPromptDraft] = useState('');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   const { aiSettings, isConfigured } = useSettings();
   const { profile, updateProfile } = useUserProfile();
   const { meals, logMeal } = useNutritionLogs();
   const { logs: workoutLogs, logWorkout, prs, setPRs } = useWorkoutLogs();
   const { schedule, setWorkoutForDate, setSchedule } = useWorkoutSchedule();
-  const { addExercise, removeExercise, updateExercise } = useWorkoutTemplates();
+  const { addExercise, removeExercise, updateExercise, setTemplate } = useWorkoutTemplates();
   const { logWeight, entries: weightHistory } = useWeightHistory();
   const [completedDays, setCompletedDays] = useLocalStorage('pump-completed-workouts', {});
   const [memories, setMemories] = useLocalStorage('pump-coach-memories', []);
@@ -271,8 +280,14 @@ export default function Coach() {
             updateExercise(template, cmd.data.exerciseName, updates);
             executed.push(`✓ Updated "${cmd.data.exerciseName}" in ${template} template`);
           }
-        }
-      } catch (e) {
+          } else if (cmd.type === 'SET_TEMPLATE' && cmd.data) {
+            const { template, exercises } = cmd.data;
+            if (template && Array.isArray(exercises)) {
+              setTemplate(template, exercises);
+              executed.push(`✓ Set ${template} template: ${exercises.length} exercises`);
+            }
+          }
+        } catch (e) {
         console.error('Command execution failed:', e);
       }
     });
@@ -316,7 +331,8 @@ export default function Coach() {
     // Only auto-calculate calorie targets if user didn't provide them AND no targets exist yet
     // If user wants to change targets, they should tell Coach the new values directly
     if (!userProvidedFields.calorieTarget && !p.calorieTarget?.min && tdeeToUse) {
-      const calorieTarget = calculateCalorieTargets(tdeeToUse, 0.75);
+      const goalDir = p.targetWeight > p.currentWeight ? 'gain' : p.targetWeight < p.currentWeight ? 'loss' : 'maintain';
+      const calorieTarget = calculateCalorieTargets(tdeeToUse, 0.75, goalDir);
       if (calorieTarget.min) {
         calculations.calorieTarget = calorieTarget;
       }
@@ -324,7 +340,9 @@ export default function Coach() {
 
     // Only auto-calculate protein targets if user didn't provide them AND no targets exist yet
     if (!userProvidedFields.proteinTarget && !p.proteinTarget?.min && p.currentWeight) {
-      const proteinTarget = calculateProteinTargets(p.currentWeight, 'weightLoss');
+      const goalDir = p.targetWeight > p.currentWeight ? 'gain' : p.targetWeight < p.currentWeight ? 'loss' : 'maintain';
+      const proteinGoal = goalDir === 'gain' ? 'muscle' : goalDir === 'loss' ? 'weightLoss' : 'maintenance';
+      const proteinTarget = calculateProteinTargets(p.currentWeight, proteinGoal);
       if (proteinTarget.min) {
         calculations.proteinTarget = proteinTarget;
       }
@@ -382,7 +400,9 @@ export default function Coach() {
 
     try {
       const context = buildContextFromState(profile, meals, workoutLogs, schedule, weightHistory, completedDays);
-      const systemPrompt = buildCoachSystemPrompt(profile, context, context.performance, memories);
+      const systemPrompt = customSystemPrompt
+        ? customSystemPrompt
+        : buildCoachSystemPrompt(profile, context, context.performance, memories);
 
       const chatMessages = updatedMessages.slice(-10).map((m) => ({
         role: m.role,
@@ -407,11 +427,20 @@ export default function Coach() {
         timestamp: Date.now(),
       };
 
-      setMessages([...updatedMessages, assistantMessage]);
+      const finalMessages = [...updatedMessages, assistantMessage];
+      // Always persist to localStorage even if modal was closed mid-request
+      localStorage.setItem('pump-chat-history', JSON.stringify(finalMessages));
+      if (isMountedRef.current) {
+        setMessages(finalMessages);
+      }
     } catch (err) {
-      setError(err.message || 'Failed to get response from Coach');
+      if (isMountedRef.current) {
+        setError(err.message || 'Failed to get response from Coach');
+      }
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -499,6 +528,13 @@ export default function Coach() {
               className="px-2 py-1 rounded bg-red-600 text-white text-xs"
             >
               Clear
+            </button>
+            <button
+              onClick={() => { setPromptDraft(customSystemPrompt); setShowPromptEditor(true); }}
+              className="p-2 rounded-lg text-text-muted hover:text-text"
+              title="Edit Coach persona"
+            >
+              <Settings size={18} />
             </button>
             <button
               onClick={() => setIsSearching(!isSearching)}
@@ -696,6 +732,44 @@ export default function Coach() {
           </button>
         </div>
       </div>
+
+      {/* System prompt editor */}
+      {showPromptEditor && (
+        <div className="fixed inset-0 z-[80] bg-black/60 flex items-end">
+          <div className="bg-surface w-full rounded-t-2xl p-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold">Coach Persona</h2>
+              <button onClick={() => setShowPromptEditor(false)} className="p-1 text-text-muted">
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-xs text-text-muted mb-3">
+              Override the default Coach system prompt. Leave empty to use the default (profile-aware) prompt. Changes take effect from the next message.
+            </p>
+            <textarea
+              value={promptDraft}
+              onChange={e => setPromptDraft(e.target.value)}
+              className="flex-1 bg-bg border border-border rounded-xl p-3 text-sm resize-none focus:outline-none focus:border-accent font-mono"
+              rows={12}
+              placeholder="Leave empty to use the default context-aware system prompt..."
+            />
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => { setPromptDraft(''); }}
+                className="flex-1 py-2 rounded-xl bg-bg text-text-muted text-sm border border-border"
+              >
+                Reset to default
+              </button>
+              <button
+                onClick={() => { setCustomSystemPrompt(promptDraft); setShowPromptEditor(false); }}
+                className="flex-1 py-2 rounded-xl bg-accent text-bg text-sm font-medium"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

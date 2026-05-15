@@ -46,6 +46,7 @@ export function useSettings() {
   };
 
   const isConfigured = () => {
+    if (aiSettings.provider === 'cli') return true;
     return getActiveApiKey()?.length > 0;
   };
 
@@ -80,6 +81,7 @@ export function useBackup() {
       docLongterm: localStorage.getItem('pump-doc-longterm'),
       docSessions: localStorage.getItem('pump-doc-sessions'),
       docSystemPrompt: localStorage.getItem('pump-doc-system-prompt'),
+      coachSystemPrompt: localStorage.getItem('pump-coach-system-prompt'),
     };
 
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -115,6 +117,7 @@ export function useBackup() {
           if (data.docLongterm) localStorage.setItem('pump-doc-longterm', data.docLongterm);
           if (data.docSessions) localStorage.setItem('pump-doc-sessions', data.docSessions);
           if (data.docSystemPrompt) localStorage.setItem('pump-doc-system-prompt', data.docSystemPrompt);
+          if (data.coachSystemPrompt) localStorage.setItem('pump-coach-system-prompt', data.coachSystemPrompt);
 
           resolve({ success: true, exportedAt: data.exportedAt });
         } catch (err) {
@@ -143,6 +146,7 @@ export function useBackup() {
       'pump-doc-longterm',
       'pump-doc-sessions',
       'pump-doc-system-prompt',
+      'pump-coach-system-prompt',
       'pump-last-backup',
     ];
     keys.forEach((key) => localStorage.removeItem(key));
