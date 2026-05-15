@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pump-v2';
+const CACHE_NAME = 'pump-20260515';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -32,18 +32,30 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== location.origin) return;
 
+  // Network-first for index.html so updates are picked up immediately
+  if (url.pathname.endsWith('/') || url.pathname.endsWith('index.html')) {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Cache-first for all other assets (JS/CSS are content-hashed, safe to cache forever)
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const fetchPromise = fetch(event.request).then((response) => {
         if (response.ok) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, clone);
-          });
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
         return response;
       });
-
       return cached || fetchPromise;
     })
   );
