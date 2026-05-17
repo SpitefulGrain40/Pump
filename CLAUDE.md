@@ -322,6 +322,18 @@ For A/B weekly patterns (cycleLength 14) and fixed schedules: standard activity 
 - Reopening the same workout restores all set data
 - Cleared automatically on Finish
 
+### Doc Prompt Editor
+- Settings gear in Doc header opens a bottom-sheet modal (`z-[60]`, above bottom nav at `z-50`)
+- Sheet anchored `absolute bottom-0` so `maxHeight: 85dvh` correctly constrains it
+- Textarea is fixed `40dvh` so Save/Reset buttons are always visible
+- Supports XML tags and any prompt length (keep under ~2000 words for best performance)
+
+### Image Attachments in Coach
+- Images sent to AI but base64 data is **stripped before saving to localStorage** to avoid exceeding the 5MB quota
+- Messages with images are saved with `hadImage: true` as a placeholder
+- Images remain visible in the current session (React state) but are not persisted
+- To clear old image data from storage: use the Clear button in the Coach header
+
 ### Schedule Planning Banner
 - Shows Fri/Sat/Sun when next week isn't planned
 - "Ask Coach" pre-fills prompt with date range and phase label

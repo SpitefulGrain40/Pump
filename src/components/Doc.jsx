@@ -350,24 +350,29 @@ ${transcript}`;
 
       {/* System prompt editor */}
       {showPromptEditor && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex flex-col">
-          <div className="flex-1" onClick={() => setShowPromptEditor(false)} />
-          <div className="bg-surface w-full rounded-t-2xl p-4 flex flex-col" style={{ maxHeight: '85dvh' }}>
-            <div className="flex items-center justify-between mb-3 shrink-0">
+        <div className="fixed inset-0 z-[60] bg-black/60" onClick={() => setShowPromptEditor(false)}>
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-2xl flex flex-col"
+            style={{ maxHeight: '85dvh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 pb-2 shrink-0">
               <h2 className="font-semibold">Therapist Persona</h2>
               <button onClick={() => setShowPromptEditor(false)} className="p-1 text-text-muted">
                 <X size={20} />
               </button>
             </div>
-            <p className="text-xs text-text-muted mb-3 shrink-0">
+            <p className="text-xs text-text-muted px-4 pb-3 shrink-0">
               This defines how Doc approaches conversations. Changes take effect from the next message.
             </p>
-            <textarea
-              value={promptDraft}
-              onChange={e => setPromptDraft(e.target.value)}
-              className="flex-1 min-h-[200px] bg-bg border border-border rounded-xl p-3 text-sm resize-none focus:outline-none focus:border-accent font-mono overflow-y-auto"
-            />
-            <div className="flex gap-2 mt-3 shrink-0 pb-safe">
+            <div className="mx-4 overflow-hidden" style={{ height: '40dvh' }}>
+              <textarea
+                value={promptDraft}
+                onChange={e => setPromptDraft(e.target.value)}
+                className="w-full h-full bg-bg border border-border rounded-xl p-3 text-sm resize-none focus:outline-none focus:border-accent font-mono overflow-y-auto"
+              />
+            </div>
+            <div className="flex gap-2 p-4 shrink-0 border-t border-border">
               <button
                 onClick={() => { setPromptDraft(DEFAULT_SYSTEM_PROMPT); }}
                 className="flex-1 py-2 rounded-xl bg-bg text-text-muted text-sm border border-border"

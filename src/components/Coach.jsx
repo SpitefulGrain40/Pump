@@ -428,8 +428,13 @@ export default function Coach({ onClose }) {
       };
 
       const finalMessages = [...updatedMessages, assistantMessage];
-      // Always persist to localStorage even if modal was closed mid-request
-      localStorage.setItem('pump-chat-history', JSON.stringify(finalMessages));
+      // Strip image data before persisting — base64 images blow the 5MB quota
+      const messagesForStorage = finalMessages.map(m => {
+        if (!m.image) return m;
+        const { image, ...rest } = m;
+        return { ...rest, hadImage: true };
+      });
+      localStorage.setItem('pump-chat-history', JSON.stringify(messagesForStorage));
       if (isMountedRef.current) {
         setMessages(finalMessages);
       }
