@@ -1,429 +1,389 @@
-# Pump - AI-Powered Fitness Coach
+# Pump — AI-Powered Mind & Body Coach
 
-A minimalist PWA for tracking strength training and weight loss with AI coaching via Claude.
+## Project Overview & Purpose
 
-## Tech Stack
+Pump is a personal, privacy-first PWA for holistic health tracking and AI coaching. It covers three pillars:
 
-- **Frontend**: React 18 + Vite
-- **Styling**: Tailwind CSS 4 (OLED dark theme)
-- **Icons**: Lucide React
-- **Charts**: Chart.js + react-chartjs-2
-- **Date Handling**: date-fns
-- **AI**: OpenRouter or Anthropic API (user-configurable); CLI provider for local dev (no token cost)
-- **Storage**: localStorage (all data persists locally)
+1. **Physical training** — workout scheduling, logging, PR tracking, and progressive overload guidance
+2. **Nutrition** — "best guess" food logging (not calorie-counting perfectionism), daily macro tracking, AI meal analysis via photo
+3. **Mental health** — a separate AI therapy companion ("Doc") for reflection and emotional support
+
+The philosophy is that mind and body health are equally important and need to be tracked together to get real results. The AI coach knows your full context — schedule, workouts, nutrition, weight trend, injuries — and gives joined-up advice rather than siloed responses.
+
+**This is a personal-use app**, not a SaaS product. All data lives in the user's own browser (localStorage). No backend, no accounts, no server. Users bring their own Anthropic or OpenRouter API key.
+
+**Live app**: https://spitefulgrain40.github.io/Pump/
+
+---
+
+## Tech Stack & Architecture
+
+| Layer | Choice | Why |
+|-------|--------|-----|
+| Frontend | React 18 + Vite | Component model suits the modal/overlay-heavy UI; fast HMR for development |
+| Styling | Tailwind CSS 4 | Utility-first, OLED dark theme via CSS variables |
+| Icons | Lucide React | Consistent, lightweight icon set |
+| Charts | Chart.js + react-chartjs-2 | Weight trend and nutrition charts |
+| Dates | date-fns | Lightweight, tree-shakeable date handling |
+| Storage | localStorage | Zero-backend, privacy-first; all data stays on device |
+| AI | Anthropic / OpenRouter / CLI proxy | User-configurable; CLI proxy for token-free local dev |
+| Deployment | GitHub Pages (`docs/` folder) | Zero infrastructure cost; auto-deploys on push |
+| PWA | Vite PWA plugin + custom sw.js | Installable on Android; offline capable |
+
+### Key Architectural Decisions
+
+**No backend, ever.** Every feature is designed to work entirely client-side. This means no auth, no user accounts, no server costs, no data privacy concerns. The tradeoff is no cross-device sync (backup/restore is manual).
+
+**localStorage as the database.** All data is persisted via a custom `useLocalStorage` hook that emits custom events on writes, enabling cross-component sync without a state management library like Redux.
+
+**AI as a command executor, not just a chatbot.** Coach responses can embed structured commands (`[LOG_MEAL: {...}]`, `[SET_SCHEDULE: {...}]` etc.) that the frontend parses and executes. The AI effectively writes directly to the user's data.
+
+**System prompt as context injection.** Every Coach message includes a freshly-built system prompt with the user's full profile, today's nutrition, recent workouts, schedule, memories, and performance metrics. No persistent AI memory — the context is rebuilt from localStorage on every request.
+
+**Jina AI for URL fetching.** When users paste URLs into Coach, content is fetched via `https://r.jina.ai/{url}` (free, no API key). This converts any webpage to clean text for inclusion in the prompt. Chosen over Anthropic's web search tool ($0.01/search) because it fetches specific URLs rather than searching.
+
+**Separate AI personas for Coach vs Doc.** Coach and Doc have completely independent chat histories, system prompts, and memory systems. Doc uses Anthropic directly (no OpenRouter) and has a two-tier memory system: per-session summaries + long-term synthesis.
+
+---
 
 ## Project Structure
 
 ```
 src/
-├── App.jsx                    # Main app shell with navigation + Coach modal overlay
-├── index.css                  # Tailwind config + OLED theme
+├── App.jsx                    # Main app shell, navigation, Coach modal overlay
+├── index.css                  # Tailwind config + OLED theme CSS variables
 ├── main.jsx                   # Entry point
 ├── components/
-│   ├── Dashboard.jsx          # Home view with daily overview + today's meals
-│   ├── Coach.jsx              # AI chat interface with command execution
-│   ├── Doc.jsx                # AI therapy companion (separate from Coach)
-│   ├── Schedule.jsx           # Fortnightly workout calendar with flexible cycle support
-│   ├── Progress.jsx           # Charts, PRs, and workout consistency
-│   ├── Settings.jsx           # Profile, AI config, backup/restore
-│   ├── Nutrition.jsx          # Full nutrition history with daily targets
-│   ├── MealLogger.jsx         # Quick meal logging modal
-│   ├── WorkoutLogger.jsx      # Exercise logging with PR detection + mid-workout Coach access
-│   └── WeightModal.jsx        # Quick weigh-in modal
+│   ├── Dashboard.jsx          # Home: daily overview, today's meals, workout
+│   ├── Coach.jsx              # AI chat, command execution, image/URL attachments
+│   ├── Doc.jsx                # AI therapy companion, session memory, prompt editor
+│   ├── Schedule.jsx           # Fortnightly calendar, shift pattern colouring
+│   ├── Progress.jsx           # Charts, PRs, 30-day consistency grid
+│   ├── Settings.jsx           # Profile, AI config, backup/restore, onboarding reset
+│   ├── Nutrition.jsx          # Full nutrition history, date navigation, 7-day averages
+│   ├── MealLogger.jsx         # Quick meal log modal, photo analysis
+│   ├── WorkoutLogger.jsx      # Exercise logger, PR detection, mid-workout Coach
+│   ├── WeightModal.jsx        # Quick weigh-in
+│   └── OnboardingWizard.jsx   # First-run setup wizard (skippable)
 ├── hooks/
-│   ├── useLocalStorage.js     # Generic localStorage hook with cross-component sync
-│   ├── useUserProfile.js      # User goals, targets, week type / phase calculation
-│   ├── useWeightHistory.js    # Weight tracking
-│   ├── useNutritionLogs.js    # Meal logging and daily totals
-│   ├── useWorkoutLogs.js      # Workout logs, PRs, schedule management, templates
-│   └── useSettings.js         # AI settings + backup utilities
+│   ├── useLocalStorage.js     # Generic hook with cross-component sync via custom events
+│   ├── useUserProfile.js      # Profile, goals, phase/week-type calculation
+│   ├── useWeightHistory.js    # Weight log
+│   ├── useNutritionLogs.js    # Meal log, daily totals, weekly averages
+│   ├── useWorkoutLogs.js      # Workout logs, PRs, schedule, templates
+│   └── useSettings.js         # AI settings, backup/restore utilities
 ├── services/
 │   └── ai/
 │       ├── index.js           # Unified exports
-│       ├── providers.js       # OpenRouter + Anthropic + CLI proxy adapters
-│       └── context.js         # System prompt + context builder + command parser
-├── utils/
-│   └── dataSchemas.js         # Data structures, defaults, week templates
-└── scripts/
-    └── pump-cli-proxy.cjs     # Local dev proxy: routes Coach through claude CLI (no API cost)
+│       ├── providers.js       # OpenRouter + Anthropic + CLI proxy adapters, multimodal support
+│       └── context.js         # System prompt builder, context aggregator, command parser
+└── utils/
+    └── dataSchemas.js         # Data structures, default exercise library, workout templates
+
+scripts/
+├── pump-cli-proxy.cjs         # Local dev proxy: routes Coach through claude CLI
+└── deploy.cjs                 # Stamps sw.js with build date, copies dist → docs/
+
+public/
+└── sw.js                      # Service worker: network-first for HTML, cache-first for assets
 ```
 
-## Navigation
+---
 
-The app has 5 bottom-nav tabs:
-- **Home** - Dashboard with goals, today's workout, nutrition summary, today's meals
-- **Food** - Full nutrition history, daily targets from schedule, meal logging
-- **Schedule** - Fortnightly calendar with flexible cycle support, completion checkboxes
-- **Doc** - AI therapy companion (Doc persona, separate chat history)
-- **More** (drawer) → **Coach** / **Progress** / **Settings**
+## Navigation & UI Structure
 
-**Coach** is also accessible as a floating bubble (bottom-right) on Home, Food, and Schedule tabs, and inside the WorkoutLogger mid-session. Tapping the bubble opens Coach as a slide-up modal overlay without leaving the current tab.
+**5 bottom-nav tabs:**
+- **Home** — Dashboard: today's workout, nutrition summary, today's meals, goals progress
+- **Food** — Full nutrition history, daily targets, meal logging
+- **Schedule** — Fortnightly calendar with shift-pattern colouring, completion checkboxes
+- **Doc** — AI therapy companion (entirely separate from Coach)
+- **More** (drawer) → Coach / Progress / Settings
 
-## z-index Hierarchy
+**Coach** is also accessible as a floating bubble (bottom-right) on Home, Food, and Schedule tabs, and inside WorkoutLogger mid-session.
+
+### z-index Hierarchy
 
 | Layer | z-index | Component |
 |-------|---------|-----------|
-| Bottom nav | z-50 | App.jsx nav |
-| Coach bubble | z-40 | App.jsx floating button |
-| Coach modal | z-[60] | App.jsx modal overlay |
+| Bottom nav | z-50 | App.jsx |
+| Coach bubble | z-40 | App.jsx |
+| Coach modal | z-[60] | App.jsx |
+| Doc prompt editor | z-[60] | Doc.jsx |
 | WorkoutLogger | z-[70] | WorkoutLogger.jsx |
-| Coach in workout | z-[75] | WorkoutLogger bubble |
-| Coach over workout | z-[80] | WorkoutLogger Coach modal |
-| Prompt editor | z-[80] | Coach.jsx system prompt editor |
+| Coach bubble (in workout) | z-[75] | WorkoutLogger.jsx |
+| Coach modal (over workout) | z-[80] | WorkoutLogger.jsx |
+
+---
 
 ## Data Schemas
 
 ### User Profile (`pump-user-profile`)
 ```javascript
 {
-  name: 'User Name',
-  gender: 'male',
-  age: 35,
-  height: 180,
-  currentWeight: 104.5,
-  startingWeight: 106,
-  targetWeight: 90,
-  targetDate: '2026-07-31',
-  tdee: 2723,                              // Can be set from Garmin/external source
-  calorieTarget: { min: 2200, max: 2400 },
-  proteinTarget: { min: 180, max: 200 },
-  bodyFatPercentage: 25,
-  neckCircumference: 40,
-  waistCircumference: 95,
-  hipCircumference: null,                  // Required for females
-  physicalNotes: 'Slipped discs in neck',
-  activityLevel: 'moderate',
+  name, gender, age, height,
+  currentWeight, startingWeight, targetWeight, targetDate,
+  tdee,                                    // Can be set manually or from Garmin
+  calorieTarget: { min, max },
+  proteinTarget: { min, max },
+  bodyFatPercentage, neckCircumference, waistCircumference,
+  hipCircumference,                        // Required for females (Navy body fat formula)
+  physicalNotes,                           // Injuries, limitations
+  activityLevel,
   schedulePattern: {
     type: 'alternating' | 'rotating' | 'fixed' | 'custom',
-    cycleLength: 14,                       // Days per full cycle (8 for 4-on/4-off, 14 for A/B)
-    cycleStart: '2026-05-05',              // Anchor date for cycle calculation
-    labels: ['A', 'B'],                    // Phase labels (e.g. ['On Shift', 'Off Shift'])
+    cycleLength: 14,                       // 8 for 4-on/4-off, 14 for A/B fortnightly
+    cycleStart: 'YYYY-MM-DD',
+    labels: ['A', 'B'],                    // Or ['On Shift', 'Off Shift'] etc.
     description: 'Week A/B rotation',
-    weekAStart: '2026-05-05'              // Legacy format — auto-migrated on load
+    weekAStart: 'YYYY-MM-DD'              // Legacy — auto-migrated on load
   },
-  weekTemplates: {                         // Coach uses these for planning
-    A: { mon: {...}, tue: {...}, ... },
-    B: { mon: {...}, tue: {...}, ... }
+  weekTemplates: {                         // Per-phase daily schedule templates
+    A: { mon: { lunch: { type, notes }, calories, protein }, ... },
+    B: { ... }
   },
   onboardingComplete: true
 }
 ```
 
-**Schedule pattern migration**: Old profiles with `schedulePattern.weekAStart` (no `type`/`cycleStart`) are supported via fallback logic in `useUserProfile.js` and `context.js`. No manual migration needed.
-
 **Phase calculation** (`getWeekTypeForDate` in `useUserProfile.js`):
-- New format: `positionInCycle = daysDiff % cycleLength`, then `weekIndex = floor(position / 7)` → `labels[weekIndex]`
-- Day-level cycles (cycleLength < 14, e.g. 4-on/4-off): `phaseIndex = floor(position / (cycleLength / labels.length))`
-- Legacy: `weekNumber = floor(daysDiff / 7)`, alternates A/B
+- `positionInCycle = daysDiff % cycleLength`
+- Weekly phases: `weekIndex = floor(position / 7)` → `labels[weekIndex]`
+- Day-level cycles (cycleLength < 14): `phaseIndex = floor(position / (cycleLength / labels.length))`
+- Legacy `weekAStart` profiles: auto-migrate via fallback logic, no manual action needed
 
-### AI Settings (`pump-ai-settings`)
-```javascript
-{
-  provider: 'openrouter' | 'anthropic' | 'cli',
-  openrouterKey: 'sk-or-...',
-  anthropicKey: 'sk-ant-...',
-  model: 'anthropic/claude-sonnet-4-20250514',
-  anthropicModel: 'claude-sonnet-4-6'
-}
-```
-
-`provider: 'cli'` routes through the local proxy at `http://localhost:3141/chat` — no API key required. Default provider is `anthropic`.
-
-### Workout Schedule (`pump-workout-schedule`)
-```javascript
-{
-  "2026-05-08": {
-    lunch: { type: 'push', notes: 'Gym between shouts' },
-    evening: { type: 'skate', notes: 'Garage session' },
-    calories: 2300,
-    protein: 180,
-    notes: 'Bed by 11:30pm'
-  }
-}
-```
-
-### Completed Workouts (`pump-completed-workouts`)
-```javascript
-{ "2026-05-08": { lunch: true, evening: false } }
-```
-
-### Meal Log (`pump-nutrition-logs`)
-```javascript
-[{
-  id: 'meal-1715180400000',
-  timestamp: '2026-05-08T12:30:00Z',
-  items: [
-    { name: 'Chicken breast', calories: 280, protein: 52 },
-    { name: 'Rice', calories: 200, protein: 4 }
-  ],
-  totals: { calories: 480, protein: 56 },
-  photoAnalyzed: false
-}]
-```
-
-### Workout Log (`pump-workout-logs`)
-```javascript
-[{
-  id: 'workout-2026-05-08-1715180400000',
-  date: '2026-05-08',
-  exercises: [{
-    name: 'Landmine Press',
-    actual: { sets: [true, true, true, true], reps: [8,8,8,8], weight: [30,30,30,30] }
-  }],
-  completedAt: '2026-05-08T13:00:00Z',
-  notes: 'Felt strong today'
-}]
-```
-
-### Personal Records (`pump-prs`)
-```javascript
-{ "Landmine Press": { weight: 35, date: '2026-05-08T13:00:00Z' } }
-```
-
-### Chat History (`pump-chat-history`)
-```javascript
-[{
-  role: 'user',
-  content: 'Log my lunch...',
-  timestamp: 1715180400000
-}, {
-  role: 'assistant',
-  content: 'Got it!\n\n✓ Logged meal: 400 kcal, 45g protein',
-  timestamp: 1715180401000
-}]
-```
-
-### Workout Draft (`pump-workout-draft`)
-```javascript
-{
-  date: '2026-05-08',
-  exercises: [...],   // Full exercises array with actual sets/reps/weight
-  savedAt: '2026-05-08T13:00:00Z'
-}
-```
-Auto-saved on every set tick. Restored when the same workout is reopened. Cleared on Finish.
-
-### Doc Chat (`pump-doc-chat`, `pump-doc-longterm`, `pump-doc-sessions`, `pump-doc-system-prompt`)
-Doc maintains its own separate chat history, long-term memory, session log, and custom system prompt — entirely independent of Coach.
-
-### Coach Custom Prompt (`pump-coach-system-prompt`)
-Optional override for the Coach system prompt. Empty = use the default context-aware prompt.
-
-## localStorage Keys Summary
+### localStorage Keys
 
 | Key | Purpose |
 |-----|---------|
-| `pump-user-profile` | User profile, goals, schedule pattern, week templates |
+| `pump-user-profile` | Profile, goals, schedule pattern, week templates |
 | `pump-ai-settings` | Provider, API keys, model selection |
 | `pump-workout-schedule` | Daily schedule (type, notes, calories, protein) |
-| `pump-completed-workouts` | Which sessions were completed per date |
+| `pump-completed-workouts` | Completion state per date/session |
 | `pump-nutrition-logs` | Meal log array |
 | `pump-workout-logs` | Completed workout log array |
 | `pump-prs` | Personal records per exercise |
-| `pump-weight-history` | Weight entries array |
-| `pump-chat-history` | Coach chat history |
+| `pump-weight-history` | Weight entries |
+| `pump-chat-history` | Coach chat history (images stripped before saving) |
 | `pump-coach-memories` | Coach long-term memories |
 | `pump-coach-system-prompt` | Custom Coach system prompt override |
 | `pump-workout-draft` | In-progress workout auto-save |
 | `pump-doc-chat` | Doc chat history |
-| `pump-doc-longterm` | Doc long-term memory |
-| `pump-doc-sessions` | Doc session log |
+| `pump-doc-longterm` | Doc long-term memory (synthesised across all sessions) |
+| `pump-doc-sessions` | Doc per-session summaries (last 10 kept) |
 | `pump-doc-system-prompt` | Custom Doc system prompt override |
 | `pump-planning-snoozed` | Schedule planning banner snooze timestamp |
 | `pump-pending-coach-prompt` | Pre-filled prompt passed to Coach on open |
+| `pump-workout-templates` | Custom workout template overrides |
+
+---
 
 ## AI Commands
 
-Coach can execute these commands by including them in responses:
+Coach embeds structured commands in responses which the frontend parses and executes:
 
 ### Log Meal
 ```
-[LOG_MEAL: {"items": [{"name": "Chicken breast", "calories": 280, "protein": 52}], "totals": {"calories": 280, "protein": 52}}]
+[LOG_MEAL: {"items": [...], "totals": {"calories": 480, "protein": 56}}]
+[LOG_MEAL: {"date": "2026-05-19", "items": [...], "totals": {...}}]
 ```
-Multiple `[LOG_MEAL:]` blocks in one response are all executed (uses `extractAllJSON`).
+- Multiple blocks per response all execute (`extractAllJSON`)
+- Optional `date` field for backdating up to 2 days
+- **Only log items explicitly mentioned in the current message** — do not re-log existing meal items
 
 ### Log Weight
 ```
 [LOG_WEIGHT: {"weight": 104.2}]
 ```
 
-### Log Workout Performance
+### Log Workout
 ```
-[LOG_WORKOUT: {"date": "2026-05-08", "exercises": [{"name": "Landmine Press", "sets": 4, "reps": [8,8,8,8], "weight": [30,30,30,30]}], "notes": "Felt strong"}]
+[LOG_WORKOUT: {"date": "2026-05-08", "exercises": [...], "notes": "..."}]
 ```
 
-### Set Schedule (Bulk)
+### Set Schedule (Bulk — max 14 days)
 ```
-[SET_SCHEDULE: {
-  "2026-05-08": {
-    "lunch": {"type": "push", "notes": "Gym between shouts"},
-    "evening": {"type": "rest"},
-    "calories": 2300,
-    "protein": 180,
-    "notes": "Bed by 11:30pm"
-  }
-}]
+[SET_SCHEDULE: {"2026-05-08": {"lunch": {"type": "push", "notes": "..."}, "calories": 2300}}]
 ```
-One block per message, max 14 days. Notes fields must be short (under 10 words) to avoid JSON truncation.
+Notes fields must be short (under 10 words) — verbose notes truncate the JSON.
 
 ### Update Profile
 ```
 [UPDATE_PROFILE: {"tdee": 2723, "calorieTarget": {"min": 2000, "max": 2200}}]
 ```
 
-### Save Week Templates
-```
-[UPDATE_PROFILE: {"weekTemplates": {
-  "On Shift": { "mon": {"lunch": {"type": "push"}, "calories": 3800} },
-  "Off Shift": { "mon": {"lunch": {"type": "rest"}, "calories": 3200} }
-}}]
-```
-
 ### Modify Workout Template (incremental)
 ```
-[UPDATE_TEMPLATE: {"template": "push", "action": "add", "exercise": {"name": "Bench Press", "sets": 4, "reps": 8, "weight": 80}}]
+[UPDATE_TEMPLATE: {"template": "push", "action": "add", "exercise": {...}}]
 [UPDATE_TEMPLATE: {"template": "push", "action": "remove", "exerciseName": "Bench Press"}]
 [UPDATE_TEMPLATE: {"template": "push", "action": "update", "exerciseName": "Bench Press", "updates": {"weight": 85}}]
 ```
-Multiple `[UPDATE_TEMPLATE:]` blocks in one response are all executed.
+Multiple blocks per response all execute.
 
 ### Replace Full Workout Template
 ```
-[SET_TEMPLATE: {"template": "push", "exercises": [{"name": "Barbell Bench Press", "sets": 4, "reps": 8, "weight": 80}, ...]}]
+[SET_TEMPLATE: {"template": "push", "exercises": [...]}]
 ```
-Replaces all exercises in the template at once. Multiple `[SET_TEMPLATE:]` blocks supported.
 
 ### Memory
 ```
-[SAVE_MEMORY: {"type": "preference", "content": "Hates burpees"}]
-[FORGET_MEMORY: {"content": "Hates burpees"}]
+[SAVE_MEMORY: {"type": "preference|injury|insight|milestone|other", "content": "..."}]
+[FORGET_MEMORY: {"content": "..."}]
 ```
-Types: `preference` | `injury` | `insight` | `milestone` | `other`
 
-## Schedule Phase Colouring
+---
 
-For day-level cycles (cycleLength < 14, e.g. 4-on/4-off with cycleLength 8):
-- **On-shift days**: green tinted tile + green dot (top-left)
-- **Off-shift days**: standard surface tile + grey dot
-- **Today**: green accent ring as always
+## Key Features & Implementation Notes
 
-For A/B weekly patterns (cycleLength 14) and fixed schedules: standard activity colour coding unchanged.
+### Coach Context
+Every Coach message rebuilds the system prompt from scratch using current localStorage state: full profile, today's nutrition, recent workouts, schedule, performance metrics, memories. A day-boundary marker is injected into chat history when messages span multiple days, so Coach knows when a new day has started.
 
-## Key Features
+### Workout Logger
+- Weight/reps inputs use local string state during editing — blank mid-edit, defaults to 0 on blur (not on every keypress)
+- Auto-saves draft to `pump-workout-draft` on every set tick
+- Restores draft on reopen for the same date; cleared on Finish
+- Coach accessible mid-workout via floating bubble (z-[75])
 
-### Coach Modal
-- Floating green bubble (bottom-right) on Home, Food, Schedule tabs
-- Also available inside WorkoutLogger at z-[75] — tap to open Coach over the workout
-- Dismissing Coach returns to the exact view/workout you were in
-- Requests complete even if modal is closed mid-response (persisted to localStorage)
-
-### Workout Draft Auto-Save
-- Every set tick saves progress to `pump-workout-draft`
-- Reopening the same workout restores all set data
-- Cleared automatically on Finish
-
-### Doc Prompt Editor
-- Settings gear in Doc header opens a bottom-sheet modal (`z-[60]`, above bottom nav at `z-50`)
-- Sheet anchored `absolute bottom-0` so `maxHeight: 85dvh` correctly constrains it
-- Textarea is fixed `40dvh` so Save/Reset buttons are always visible
-- Supports XML tags and any prompt length (keep under ~2000 words for best performance)
+### Schedule Phase Colouring
+For day-level cycles (cycleLength < 14, e.g. 4-on/4-off):
+- On-shift days: green tinted tile + green dot
+- Off-shift days: standard surface + grey dot
+For A/B weekly patterns: standard activity colour coding
 
 ### Image Attachments in Coach
-- Images sent to AI but base64 data is **stripped before saving to localStorage** to avoid exceeding the 5MB quota
-- Messages with images are saved with `hadImage: true` as a placeholder
-- Images remain visible in the current session (React state) but are not persisted
-- To clear old image data from storage: use the Clear button in the Coach header
+- Images sent to AI as base64 (multimodal message format)
+- Base64 data stripped before saving to localStorage (prevents 5MB quota errors)
+- Saved messages get `hadImage: true` as placeholder
+- Images visible in current session (React state) but not persisted
 
-### Schedule Planning Banner
-- Shows Fri/Sat/Sun when next week isn't planned
-- "Ask Coach" pre-fills prompt with date range and phase label
-- Can snooze for 24 hours
+### Doc Memory System
+Two-tier memory built on session end:
+1. Per-session summary (~150-200 words) stored in `pump-doc-sessions` (last 10 kept)
+2. Long-term synthesis in `pump-doc-longterm` (updated/merged each session, ~300-400 words)
+Both injected into next session's system prompt for continuity.
 
-### Nutrition Tracking
-- Daily calorie/protein targets from schedule (falls back to profile)
-- Today's meals shown on Dashboard
-- Full history in Nutrition tab with date navigation
-- 7-day averages
+### Doc Prompt Editor
+Bottom-sheet modal anchored `absolute bottom-0` (not flex-based) so `maxHeight: 85dvh` correctly constrains it. Textarea fixed at `40dvh` so Save/Reset buttons are always visible above the keyboard. Supports XML tags in the prompt.
 
-### Workout Consistency
-- 30-day grid on Progress page
-- Green = completed, Red = missed scheduled workout, Gray = rest day
-- Streak counter
+### URL Fetching in Coach
+Jina AI (`https://r.jina.ai/{url}`) converts any URL to clean text, injected into the message before sending. Free, no API key required. Up to 3 URLs per message.
 
-### Cross-Component Sync
-- localStorage changes sync across all components via custom events
-- No page refresh needed when Coach logs data
+### CLI Proxy
+Routes Coach through the local `claude` CLI — zero API token cost for development. Uses `--bare --no-session-persistence --tools ""` flags to prevent CLAUDE.md discovery and session bleed.
 
-## Development
+---
+
+## Development Workflow
+
+### Plan → Test → Production → Document
+
+All changes follow this workflow **without exception**:
+
+1. **Plan** — discuss and agree the approach before writing code
+2. **Build** — implement the change locally (`npm run dev`)
+3. **Test (sandbox)** — deploy to `dist/` and run preview server (`npm run build && node scripts/deploy.cjs` then `npm run preview`)
+4. **User approval** — user tests on the preview build and confirms it works
+5. **Production** — only after approval: `node scripts/deploy.cjs` deploys to `docs/`, then `git push` to GitHub Pages
+6. **Document** — update CLAUDE.md after every production deploy, then push
+
+> **Never deploy to production without user approval of the test build.**
+
+### Commands
 
 ```bash
-npm install        # Install dependencies
-npm run dev        # Start dev server (http://localhost:5173)
-npm run build      # Build for production
-npm run preview    # Preview production build
+npm install                          # Install dependencies
+npm run dev                          # Dev server (http://localhost:5173)
+npm run build                        # Build to dist/
+node scripts/deploy.cjs              # Stamp sw.js + copy dist → docs/ (production)
+npm run preview                      # Preview dist/ on localhost:4173
+
+# Token-free local testing via CLI proxy
+node scripts/pump-cli-proxy.cjs &    # Start proxy on localhost:3141
+# Then set provider to "CLI (local)" in Settings
 ```
 
-### CLI Proxy (token-free local testing)
-Runs Coach through your local `claude` CLI session — no API tokens consumed.
+### Preview Server Note
+`npm run preview` serves from `dist/` which contains `index.src.html` not `index.html`. After `npm run build`, manually copy: `cp dist/index.src.html dist/index.html`. The deploy script handles this for production automatically.
 
-```bash
-node scripts/pump-cli-proxy.cjs &   # Start proxy on localhost:3141
-npm run dev                          # Or: npm run preview -- --port 4173
-```
-
-Then set provider to **CLI (local)** in Settings. The proxy uses `--bare --no-session-persistence --tools ""` to ensure complete isolation from your current Claude Code session.
-
-Custom slash commands are available:
+### CLI Proxy Custom Commands
 - `/pump-dev` — starts proxy + dev server
 - `/pump-test` — builds + starts proxy + preview server on port 4173
 
-## Building for Android
+---
 
-1. Run `npm run build`
-2. Copy entire `dist/` folder to Google Drive
-3. Download folder on Android device
-4. Open `index.html` in Chrome
-5. Use app - all data persists in localStorage
-6. Optionally: Chrome menu → "Add to Home Screen" for app-like experience
+## Deployment
 
-## Backup & Restore
+Hosted on GitHub Pages from the `docs/` folder of the `master` branch.
 
-Via Settings page:
-- **Export**: Downloads `pump-backup-{date}.json` with all localStorage data
-- **Import**: Restores from backup file
+```bash
+node scripts/deploy.cjs   # Stamps sw.js with build date, copies dist → docs/
+git add docs/ && git commit -m "..." && git push
+```
 
-**Important**: Always export a backup before clearing browser data or switching devices!
+The service worker uses a stamped cache name (`pump-YYYYMMDD`) so Android users automatically get updates. Network-first strategy for `index.html`, cache-first for JS/CSS assets.
 
-## Key Files to Modify
+### Android Installation
+1. Open https://spitefulgrain40.github.io/Pump/ in Chrome
+2. Chrome menu → "Add to Home Screen"
+3. All data persists in localStorage
 
-| Change | File |
-|--------|------|
-| User defaults & week templates | `src/utils/dataSchemas.js` |
-| AI behavior & commands | `src/services/ai/context.js` |
-| Theme colors | `src/index.css` (`:root` variables) |
-| Exercise library | `src/utils/dataSchemas.js` → `EXERCISE_LIBRARY` |
-| Workout templates | `src/utils/dataSchemas.js` → `WORKOUT_TEMPLATES` |
-| CLI proxy | `scripts/pump-cli-proxy.cjs` |
+---
+
+## Current State (as of 2026-05-20)
+
+### Completed & Working
+- Full onboarding wizard with skip/restore option
+- Dashboard with daily goals, workout, nutrition summary
+- Workout scheduling with flexible shift patterns (A/B fortnightly, 4-on/4-off, custom)
+- Workout logger with set/rep/weight tracking, PR detection, draft auto-save
+- Nutrition logging (manual + photo analysis), daily targets, 7-day averages
+- Coach AI with full context, command execution, image attachments, URL fetching, chat search
+- Doc AI therapy companion with two-tier session memory
+- Progress charts, PR records, 30-day consistency grid
+- Backup/restore via JSON export
+- Service worker with cache-busting for automatic Android updates
+- Schedule phase colouring for shift workers
+- Mid-workout Coach access
+
+### Known Quirks & Limitations
+- **Cross-device sync**: Not supported — backup/restore is the only migration path
+- **5MB localStorage limit**: Image data is stripped from chat history to mitigate; large chat histories or many workouts could approach the limit over time
+- **Day boundary in Coach**: The fix (injecting a date marker between messages from different days) relies on message timestamps being set correctly. Messages saved without timestamps default to today.
+- **SET_SCHEDULE JSON truncation**: If Coach writes verbose notes (full exercise lists) into notes fields, the JSON gets truncated and the command fails silently. Notes must be under 10 words.
+- **Preview server**: Requires manual `cp dist/index.src.html dist/index.html` step after each build — the deploy script handles this for production but not for local preview.
+- **CLI proxy on Windows**: Uses bash shebang in `.bin/vite` — must invoke via `node node_modules/vite/bin/vite.js` not `npx vite` on Windows.
+
+### Next Steps / Potential Improvements
+- App rename (current name "Pump" is a placeholder — "Hale" is the leading candidate, trademark-clear)
+- URL allowlist for Jina fetching (scheme validation: http/https only)
+- Backup import field whitelist (prevent unexpected localStorage keys)
+- CLI proxy model parameter whitelist
+- Explore web search tool integration for Coach (Anthropic's tool at $0.01/search — useful for "look up macros for X" type queries without user pasting URLs)
+- Consider chat history pruning strategy as localStorage grows over time
+
+---
 
 ## Troubleshooting
 
 ### Coach doesn't see week templates
-Templates are stored in `profile.weekTemplates`. If missing after migration:
-```javascript
-location.reload(); // Auto-migration runs on load
-```
+Templates in `profile.weekTemplates`. If missing after migration: `location.reload()` — auto-migration runs on load.
 
-### Old weekAStart profile not showing correct phase
-Old `schedulePattern: { weekAStart: '...' }` profiles auto-migrate — the fallback in `getWeekTypeForDate` handles them. No manual action needed.
-
-### Data not syncing between tabs
-The app uses custom events for same-tab sync. Cross-tab sync is not supported — use one tab only.
-
-### Missing confirmations in Coach
-Check browser console for `"Parsed commands:"` — if empty array, the command format is wrong. Requires exact `[COMMAND: {...}]` syntax with valid JSON.
+### Coach blending yesterday's and today's data
+The day boundary marker is injected based on message timestamps. If old messages lack timestamps, they all appear as today. Use the Clear button in Coach header to reset chat history — memories are preserved separately.
 
 ### SET_SCHEDULE not saving
-Usually caused by Coach writing verbose notes (full exercise lists) into the notes fields, bloating the JSON beyond what the response can complete. Notes must be short (under 10 words). Check console for JSON parse errors.
+Coach wrote verbose notes. Check browser console for JSON parse errors. Notes must be under 10 words.
 
-### CLI proxy persona bleed
-The proxy must use `--bare --no-session-persistence` flags. If Coach starts referencing dev tools or file access, restart the proxy — the old version (without `--bare`) may still be running.
+### CLI proxy acting as Claude Code assistant
+Proxy must run with `--bare --no-session-persistence` flags. Restart the proxy — old version without `--bare` may still be running.
+
+### Android not getting updates
+Hard-refresh Chrome (Settings → Privacy → Clear browsing data → Cached images). The service worker cache name changes on each deploy, which should auto-update on next load.
+
+### Preview server 404
+After `npm run build`, run: `cp dist/index.src.html dist/index.html` then retry.
+
+### Doc Save button not visible
+If the bottom sheet appears but buttons are cut off, the modal z-index may be wrong. Doc prompt editor is `z-[60]` — must be above bottom nav (`z-50`).
+
+### Missing Coach confirmations
+Check console for `"Parsed commands:"` — empty array means command format is wrong. Requires exact `[COMMAND: {...}]` syntax with valid JSON inside.
