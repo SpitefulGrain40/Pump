@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { differenceInDays, format } from 'date-fns';
 import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Link, ChevronDown, ChevronRight, Settings } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
@@ -141,12 +142,19 @@ export default function Coach({ onClose }) {
     commands.forEach((cmd) => {
       try {
         if (cmd.type === 'LOG_MEAL' && cmd.data.items && cmd.data.totals) {
-          // Filter out any "Total" items that Coach might have included
           const filteredItems = cmd.data.items.filter(item =>
             !item.name.toLowerCase().includes('total')
           );
-          logMeal(filteredItems, cmd.data.totals, false);
-          executed.push(`✓ Logged meal: ${cmd.data.totals.calories} kcal, ${cmd.data.totals.protein}g protein`);
+          // Support backdating up to 2 days
+          let mealDate = null;
+          if (cmd.data.date) {
+            const d = new Date(cmd.data.date);
+            const daysDiff = differenceInDays(new Date(), d);
+            if (daysDiff >= 0 && daysDiff <= 2) mealDate = cmd.data.date;
+          }
+          logMeal(filteredItems, cmd.data.totals, false, mealDate);
+          const dateLabel = mealDate ? ` (${mealDate})` : '';
+          executed.push(`✓ Logged meal${dateLabel}: ${cmd.data.totals.calories} kcal, ${cmd.data.totals.protein}g protein`);
         } else if (cmd.type === 'LOG_WEIGHT' && cmd.data.weight) {
           logWeight(cmd.data.weight);
           executed.push(`✓ Logged weight: ${cmd.data.weight} kg`);
@@ -408,9 +416,27 @@ export default function Coach({ onClose }) {
         role: m.role,
         content: m.content,
         image: m.image,
+        timestamp: m.timestamp,
       }));
 
-      const response = await sendMessage(aiSettings, chatMessages, systemPrompt);
+      // Insert a day-boundary marker when messages span multiple days
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const messagesWithBoundaries = [];
+      let lastDate = null;
+      for (const m of chatMessages) {
+        const msgDate = m.timestamp ? format(new Date(m.timestamp), 'yyyy-MM-dd') : today;
+        if (lastDate && msgDate !== lastDate) {
+          messagesWithBoundaries.push({
+            role: 'user',
+            content: `[System note: It is now ${format(new Date(), 'EEEE, MMMM d')}. The previous messages are from an earlier date. Today's nutrition and workout data has been refreshed in your system prompt.]`,
+          });
+        }
+        const { timestamp, ...apiMessage } = m;
+        messagesWithBoundaries.push(apiMessage);
+        lastDate = msgDate;
+      }
+
+      const response = await sendMessage(aiSettings, messagesWithBoundaries, systemPrompt);
       const { commands, cleanContent } = parseAICommands(response.content);
       console.log('Parsed commands:', commands);
       const executedActions = executeCommands(commands);

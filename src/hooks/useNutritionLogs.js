@@ -5,8 +5,8 @@ import { format, parseISO, startOfDay, isToday } from 'date-fns';
 export function useNutritionLogs() {
   const { items: meals, add, update, remove, clear } = useLocalStorageArray('pump-nutrition-logs', []);
 
-  const logMeal = (items, totals, photoAnalyzed = false) => {
-    const meal = createMealLog(items, totals, photoAnalyzed);
+  const logMeal = (items, totals, photoAnalyzed = false, date = null) => {
+    const meal = createMealLog(items, totals, photoAnalyzed, date);
     add(meal);
     return meal;
   };

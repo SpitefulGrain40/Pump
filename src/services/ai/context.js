@@ -437,6 +437,8 @@ When the user wants to log or update data, include these commands in your respon
 
 - Log food: [LOG_MEAL: {"items": [{"name": "Chicken breast", "calories": 280, "protein": 52}, {"name": "Rice", "calories": 200, "protein": 4}], "totals": {"calories": 480, "protein": 56}}]
   IMPORTANT: Only include actual food items in "items" array - do NOT include a "Total" row. The totals go in the separate "totals" object.
+  IMPORTANT: Only log the items explicitly mentioned in the current message. If the user says "add a banana to my lunch", log ONLY the banana — do NOT re-log the existing lunch items. Each LOG_MEAL block should contain only the new items being added.
+  IMPORTANT: To log a meal for a previous date (max 2 days ago), add a "date" field: [LOG_MEAL: {"date": "2026-05-08", "items": [...], "totals": {...}}]. Today is ${format(new Date(), 'yyyy-MM-dd')}. If no date is specified, defaults to today.
 - Log weight: [LOG_WEIGHT: {"weight": 104.2}]
 - Log workout performance: [LOG_WORKOUT: {"date": "2026-05-08", "exercises": [{"name": "Landmine Press", "sets": 4, "reps": [8, 8, 8, 8], "weight": [30, 30, 30, 30]}, {"name": "DB Incline Press", "sets": 3, "reps": [10, 10, 8], "weight": [20, 20, 20]}], "notes": "Felt strong today"}]
   - date: The date of the workout (YYYY-MM-DD format)

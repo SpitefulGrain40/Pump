@@ -57,9 +57,9 @@ export const createExerciseLog = (name, planned, actual = null) => ({
   isPR: false,
 });
 
-export const createMealLog = (items, totals, photoAnalyzed = false) => ({
+export const createMealLog = (items, totals, photoAnalyzed = false, date = null) => ({
   id: `meal-${Date.now()}`,
-  timestamp: new Date().toISOString(),
+  timestamp: date ? new Date(date).toISOString() : new Date().toISOString(),
   items,
   totals,
   photoAnalyzed,

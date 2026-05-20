@@ -14,6 +14,7 @@ function parseWeight(weightStr) {
 export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoach }) {
   const { logWorkout, completeWorkout, getWorkoutForDate, getExerciseHistory } = useWorkoutLogs();
   const [exercises, setExercises] = useState([]);
+  const [inputValues, setInputValues] = useState({}); // raw string values during editing: key = `${exIdx}-${setIdx}-${field}`
   const [currentExercise, setCurrentExercise] = useState(0);
   const [timer, setTimer] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
@@ -103,9 +104,29 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
   };
 
   const handleValueChange = (exerciseIndex, setIndex, field, value) => {
+    const key = `${exerciseIndex}-${setIndex}-${field}`;
+    setInputValues(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleValueBlur = (exerciseIndex, setIndex, field) => {
+    const key = `${exerciseIndex}-${setIndex}-${field}`;
+    const raw = inputValues[key];
+    if (raw === undefined) return;
+    const parsed = parseFloat(raw);
+    const numeric = isNaN(parsed) ? 0 : parsed;
     const updated = [...exercises];
-    updated[exerciseIndex].actual[field][setIndex] = parseFloat(value) || 0;
+    updated[exerciseIndex].actual[field][setIndex] = numeric;
     setExercises(updated);
+    setInputValues(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const getInputValue = (exerciseIndex, setIndex, field) => {
+    const key = `${exerciseIndex}-${setIndex}-${field}`;
+    return key in inputValues ? inputValues[key] : String(exercises[exerciseIndex]?.actual[field][setIndex] ?? '');
   };
 
   const handleFinishWorkout = () => {
@@ -266,8 +287,9 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
                   {/* Actual Reps */}
                   <input
                     type="number"
-                    value={currentEx.actual.reps[setIndex]}
+                    value={getInputValue(currentExercise, setIndex, 'reps')}
                     onChange={(e) => handleValueChange(currentExercise, setIndex, 'reps', e.target.value)}
+                    onBlur={() => handleValueBlur(currentExercise, setIndex, 'reps')}
                     className="w-full bg-bg border border-border rounded px-2 py-1.5 text-center text-sm"
                   />
 
@@ -275,8 +297,9 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
                   <input
                     type="number"
                     step="0.5"
-                    value={currentEx.actual.weight[setIndex]}
+                    value={getInputValue(currentExercise, setIndex, 'weight')}
                     onChange={(e) => handleValueChange(currentExercise, setIndex, 'weight', e.target.value)}
+                    onBlur={() => handleValueBlur(currentExercise, setIndex, 'weight')}
                     className="w-full bg-bg border border-border rounded px-2 py-1.5 text-center text-sm"
                   />
 
