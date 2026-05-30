@@ -391,7 +391,27 @@ export function buildCoachSystemPrompt(profile, context, performance = null, mem
 - Target Date: ${profile.targetDate ? `${profile.targetDate} (${daysToGoal} days remaining)` : 'Not set'}
 ${weightToLose ? `- Weight to Lose: ${weightToLose.toFixed(1)} kg` : ''}
 ${weightToLose && daysToGoal ? `- Required Rate: ~${((weightToLose / daysToGoal) * 7).toFixed(1)} kg/week` : ''}
-- Body Fat: ${profile.bodyFatPercentage ? profile.bodyFatPercentage + '%' : 'Not measured'}
+${(() => {
+  // Both body-fat values are exposed so Coach can comment on the gap between
+  // user-entered and Navy-calculated values.
+  const navy = (() => {
+    if (!profile.gender || !profile.height || !profile.waistCircumference || !profile.neckCircumference) return null;
+    if (profile.gender === 'female' && !profile.hipCircumference) return null;
+    const logW = profile.gender === 'male'
+      ? Math.log10(profile.waistCircumference - profile.neckCircumference)
+      : Math.log10(profile.waistCircumference + profile.hipCircumference - profile.neckCircumference);
+    const logH = Math.log10(profile.height);
+    const bf = profile.gender === 'male'
+      ? 495 / (1.0324 - 0.19077 * logW + 0.15456 * logH) - 450
+      : 495 / (1.29579 - 0.35004 * logW + 0.22100 * logH) - 450;
+    return bf > 0 && bf < 60 ? Math.round(bf * 10) / 10 : null;
+  })();
+  const manual = profile.bodyFatManual ?? profile.bodyFatPercentage;
+  const parts = [];
+  if (navy != null) parts.push(`Navy: ${navy}%`);
+  if (manual) parts.push(`Manual: ${manual}%`);
+  return `- Body Fat: ${parts.length ? parts.join(' | ') : 'Not measured'}`;
+})()}
 - TDEE: ${profile.tdee ? profile.tdee + ' kcal/day' : 'Not calculated'}
 - Target Calories: ${profile.calorieTarget?.min && profile.calorieTarget?.max ? `${profile.calorieTarget.min}-${profile.calorieTarget.max} kcal/day` : 'Not set'}
 - Protein Target: ${profile.proteinTarget?.min && profile.proteinTarget?.max ? `${profile.proteinTarget.min}-${profile.proteinTarget.max}g/day` : 'Not set'}

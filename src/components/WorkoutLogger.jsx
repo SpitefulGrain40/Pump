@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Check, Trophy, Play, Pause, RotateCcw, MessageCircle, ChevronDown } from 'lucide-react';
+import { X, Check, Trophy, Play, Pause, RotateCcw, MessageCircle, ChevronDown, SkipForward } from 'lucide-react';
 import { useWorkoutLogs } from '../hooks/useWorkoutLogs';
 import Coach from './Coach';
 import { format } from 'date-fns';
@@ -54,6 +54,7 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
         return {
           name: ex.name,
           notes: ex.notes || '',
+          skipped: false,
           planned: { sets: ex.sets, reps: ex.reps, weight: plannedWeight },
           prev: prev ? {
             reps: prevReps,
@@ -137,10 +138,27 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
       existingWorkout = logWorkout(workoutDate, exercises);
     }
 
+    // completeWorkout filters skipped + zero-set exercises before persisting
+    // and before any PR calculation. This prevents the old "Infinity PR" bug
+    // (Math.max of empty array → -Infinity, stored as null after JSON round-trip).
     const prs = completeWorkout(existingWorkout.id, exercises);
     setNewPRs(prs);
     setIsComplete(true);
     localStorage.removeItem('pump-workout-draft');
+  };
+
+  const handleSkipExercise = (index) => {
+    const updated = [...exercises];
+    updated[index] = { ...updated[index], skipped: !updated[index].skipped };
+    setExercises(updated);
+    // Persist skip state to draft
+    const workoutDate = workout.date || format(new Date(), 'yyyy-MM-dd');
+    const draft = { date: workoutDate, exercises: updated, savedAt: new Date().toISOString() };
+    localStorage.setItem('pump-workout-draft', JSON.stringify(draft));
+    // Auto-advance past skipped exercise (unless it's the last one)
+    if (updated[index].skipped && index < exercises.length - 1) {
+      setCurrentExercise(index + 1);
+    }
   };
 
   const handleDone = () => {
@@ -239,7 +257,22 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
       )}
 
       <div className="flex-1 overflow-y-auto p-4">
-        {currentEx && (
+        {currentEx && currentEx.skipped && (
+          <div className="space-y-4 py-12 text-center">
+            <SkipForward size={48} className="mx-auto text-text-muted opacity-50" />
+            <div>
+              <h3 className="text-xl font-bold text-text-muted line-through">{currentEx.name}</h3>
+              <p className="text-text-muted text-sm mt-2">Skipped — will not be logged</p>
+            </div>
+            <button
+              onClick={() => handleSkipExercise(currentExercise)}
+              className="px-4 py-2 bg-surface-light rounded-lg text-sm"
+            >
+              Unskip
+            </button>
+          </div>
+        )}
+        {currentEx && !currentEx.skipped && (
           <div className="space-y-4">
             <div className="text-center mb-4">
               <h3 className="text-xl font-bold">{currentEx.name}</h3>
@@ -325,28 +358,39 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
       </div>
 
       {/* Navigation */}
-      <div className="bg-black p-4 border-t border-border flex gap-3">
-        <button
-          onClick={() => setCurrentExercise(Math.max(0, currentExercise - 1))}
-          disabled={currentExercise === 0}
-          className="flex-1 py-3 bg-surface-light rounded-lg font-medium disabled:opacity-50"
-        >
-          Previous
-        </button>
-
-        {currentExercise === exercises.length - 1 ? (
+      <div className="bg-black p-4 border-t border-border space-y-2">
+        <div className="flex gap-3">
           <button
-            onClick={handleFinishWorkout}
-            className="flex-1 py-3 bg-accent text-bg rounded-lg font-semibold"
+            onClick={() => setCurrentExercise(Math.max(0, currentExercise - 1))}
+            disabled={currentExercise === 0}
+            className="flex-1 py-3 bg-surface-light rounded-lg font-medium disabled:opacity-50"
           >
-            Finish
+            Previous
           </button>
-        ) : (
+
+          {currentExercise === exercises.length - 1 ? (
+            <button
+              onClick={handleFinishWorkout}
+              className="flex-1 py-3 bg-accent text-bg rounded-lg font-semibold"
+            >
+              Finish
+            </button>
+          ) : (
+            <button
+              onClick={() => setCurrentExercise(Math.min(exercises.length - 1, currentExercise + 1))}
+              className="flex-1 py-3 bg-info text-white rounded-lg font-medium"
+            >
+              Next
+            </button>
+          )}
+        </div>
+        {currentEx && !currentEx.skipped && (
           <button
-            onClick={() => setCurrentExercise(Math.min(exercises.length - 1, currentExercise + 1))}
-            className="flex-1 py-3 bg-info text-white rounded-lg font-medium"
+            onClick={() => handleSkipExercise(currentExercise)}
+            className="w-full py-2 text-text-muted text-xs hover:text-text flex items-center justify-center gap-2"
           >
-            Next
+            <SkipForward size={14} />
+            Skip this exercise
           </button>
         )}
       </div>

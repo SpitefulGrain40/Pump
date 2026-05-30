@@ -239,11 +239,17 @@ function fileToBase64(file) {
   });
 }
 
+// Photo meal analysis is a low-reasoning task: read the image, output JSON.
+// Hardcoded to Haiku 4.5 regardless of the user's chosen Coach model — ~5×
+// cheaper than Sonnet and plenty capable for this. Saves real money on
+// frequent meal logging.
+const PHOTO_MODEL_ANTHROPIC = 'claude-haiku-4-5';
+const PHOTO_MODEL_OPENROUTER = 'anthropic/claude-haiku-4-5-20251001';
+
 async function analyzePhoto(base64) {
   const settings = JSON.parse(localStorage.getItem('pump-ai-settings') || '{}');
   const provider = settings.provider || 'openrouter';
   const apiKey = provider === 'openrouter' ? settings.openrouterKey : settings.anthropicKey;
-  const model = provider === 'openrouter' ? settings.model : settings.anthropicModel;
 
   if (!apiKey) throw new Error('API key not configured');
 
@@ -259,7 +265,7 @@ async function analyzePhoto(base64) {
         'HTTP-Referer': 'pump-fitness-app',
       },
       body: JSON.stringify({
-        model: model || 'anthropic/claude-sonnet-4-6',
+        model: PHOTO_MODEL_OPENROUTER,
         messages: [
           {
             role: 'user',
@@ -290,7 +296,7 @@ async function analyzePhoto(base64) {
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: model || 'claude-sonnet-4-6',
+        model: PHOTO_MODEL_ANTHROPIC,
         max_tokens: 500,
         messages: [
           {

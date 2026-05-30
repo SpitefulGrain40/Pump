@@ -117,6 +117,39 @@ export function calculateProteinTargets(weight, goal = 'weightLoss') {
 }
 
 /**
+ * Compute Navy body fat from a profile object. Returns null if measurements
+ * are missing. Standalone helper so display code doesn't have to assemble
+ * the args every time.
+ */
+export function getNavyBodyFat(profile) {
+  if (!profile) return null;
+  return calculateBodyFatNavy(
+    profile.gender,
+    profile.height,
+    profile.waistCircumference,
+    profile.neckCircumference,
+    profile.hipCircumference,
+  );
+}
+
+/**
+ * Resolve which body fat value to display. Order of preference:
+ * 1. Navy method (computed from measurements) — default per user preference
+ * 2. Manual entry (DEXA / scan / calipers / smart scale)
+ * 3. Legacy bodyFatPercentage field (for back-compat)
+ *
+ * Returns { value, source } where source ∈ 'navy' | 'manual' | 'legacy' | null.
+ */
+export function resolveBodyFat(profile) {
+  if (!profile) return { value: null, source: null };
+  const navy = getNavyBodyFat(profile);
+  if (navy && navy > 0 && navy < 60) return { value: navy, source: 'navy' };
+  if (profile.bodyFatManual) return { value: profile.bodyFatManual, source: 'manual' };
+  if (profile.bodyFatPercentage) return { value: profile.bodyFatPercentage, source: 'legacy' };
+  return { value: null, source: null };
+}
+
+/**
  * Get body fat category
  */
 export function getBodyFatCategory(gender, bodyFat) {

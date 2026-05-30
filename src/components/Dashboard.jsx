@@ -6,6 +6,7 @@ import {
   LineElement, BarElement, Title, Tooltip, Legend, Filler,
 } from 'chart.js';
 import { useUserProfile } from '../hooks/useUserProfile';
+import { resolveBodyFat, getNavyBodyFat } from '../utils/calculations';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useWorkoutSchedule, useWorkoutLogs } from '../hooks/useWorkoutLogs';
 import { useWeightHistory } from '../hooks/useWeightHistory';
@@ -251,29 +252,43 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
         </div>
       )}
 
-      {/* Body Stats Summary */}
-      {profile.bodyFatPercentage && (
-        <div className="bg-surface rounded-xl p-4">
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div>
-              <div className="text-lg font-bold text-accent">{profile.bodyFatPercentage}%</div>
-              <div className="text-xs text-text-muted">Body Fat</div>
-            </div>
-            <div>
-              <div className="text-lg font-bold text-info">{profile.tdee || '--'}</div>
-              <div className="text-xs text-text-muted">TDEE</div>
-            </div>
-            <div>
-              <div className="text-lg font-bold text-warning">
-                {profile.currentWeight && profile.bodyFatPercentage
-                  ? Math.round(profile.currentWeight * (1 - profile.bodyFatPercentage / 100) * 10) / 10
-                  : '--'}
+      {/* Body Stats Summary — Navy is the displayed default; manual shown as small secondary */}
+      {(() => {
+        const { value: displayedBF, source } = resolveBodyFat(profile);
+        const navy = getNavyBodyFat(profile);
+        const manual = profile.bodyFatManual ?? profile.bodyFatPercentage;
+        const showSecondary = navy && manual && Math.abs(navy - manual) >= 0.5;
+        if (!displayedBF) return null;
+        return (
+          <div className="bg-surface rounded-xl p-4">
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <div className="text-lg font-bold text-accent">{displayedBF}%</div>
+                <div className="text-xs text-text-muted">
+                  Body Fat{source === 'navy' ? ' (Navy)' : source === 'manual' ? ' (manual)' : ''}
+                </div>
+                {showSecondary && (
+                  <div className="text-[10px] text-text-muted/70 mt-0.5">
+                    manual: {manual}%
+                  </div>
+                )}
               </div>
-              <div className="text-xs text-text-muted">Lean Mass</div>
+              <div>
+                <div className="text-lg font-bold text-info">{profile.tdee || '--'}</div>
+                <div className="text-xs text-text-muted">TDEE</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold text-warning">
+                  {profile.currentWeight && displayedBF
+                    ? Math.round(profile.currentWeight * (1 - displayedBF / 100) * 10) / 10
+                    : '--'}
+                </div>
+                <div className="text-xs text-text-muted">Lean Mass</div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Today's Workout */}
       <div className="bg-surface rounded-xl p-4">

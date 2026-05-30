@@ -2,6 +2,9 @@ import { useLocalStorageArray } from './useLocalStorage';
 import { createMealLog } from '../utils/dataSchemas';
 import { format, parseISO, startOfDay, isToday } from 'date-fns';
 
+// Round to 1 decimal place — fixes float artifacts like 10.00000000000002
+const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
+
 export function useNutritionLogs() {
   const { items: meals, add, update, remove, clear } = useLocalStorageArray('pump-nutrition-logs', []);
 
@@ -17,13 +20,14 @@ export function useNutritionLogs() {
 
   const getTodaysTotals = () => {
     const todayMeals = getTodaysMeals();
-    return todayMeals.reduce(
+    const sum = todayMeals.reduce(
       (acc, meal) => ({
-        calories: acc.calories + (meal.totals?.calories || 0),
-        protein: acc.protein + (meal.totals?.protein || 0),
+        calories: acc.calories + (Number(meal.totals?.calories) || 0),
+        protein: acc.protein + (Number(meal.totals?.protein) || 0),
       }),
       { calories: 0, protein: 0 }
     );
+    return { calories: round1(sum.calories), protein: round1(sum.protein) };
   };
 
   const getMealsForDate = (date) => {
@@ -33,20 +37,25 @@ export function useNutritionLogs() {
 
   const getDailyTotals = (date) => {
     const dayMeals = getMealsForDate(date);
-    return dayMeals.reduce(
+    const sum = dayMeals.reduce(
       (acc, meal) => ({
-        calories: acc.calories + (meal.totals?.calories || 0),
-        protein: acc.protein + (meal.totals?.protein || 0),
+        calories: acc.calories + (Number(meal.totals?.calories) || 0),
+        protein: acc.protein + (Number(meal.totals?.protein) || 0),
       }),
       { calories: 0, protein: 0 }
     );
+    return { calories: round1(sum.calories), protein: round1(sum.protein) };
   };
 
+  // 7-day average. Calories and protein are averaged INDEPENDENTLY — a day
+  // with 0 calories doesn't drag the calorie avg; a day with 0 protein doesn't
+  // drag the protein avg. Skipped/empty days are excluded from both denominators.
   const getWeeklyAverage = () => {
     const now = new Date();
     let totalCalories = 0;
     let totalProtein = 0;
-    let daysWithData = 0;
+    let calorieDays = 0;
+    let proteinDays = 0;
 
     for (let i = 0; i < 7; i++) {
       const date = new Date(now);
@@ -54,18 +63,21 @@ export function useNutritionLogs() {
       const totals = getDailyTotals(date);
       if (totals.calories > 0) {
         totalCalories += totals.calories;
+        calorieDays++;
+      }
+      if (totals.protein > 0) {
         totalProtein += totals.protein;
-        daysWithData++;
+        proteinDays++;
       }
     }
 
-    return daysWithData > 0
-      ? {
-          calories: Math.round(totalCalories / daysWithData),
-          protein: Math.round(totalProtein / daysWithData),
-          daysTracked: daysWithData,
-        }
-      : { calories: 0, protein: 0, daysTracked: 0 };
+    // daysTracked = max of either to give the user a sense of coverage.
+    const daysTracked = Math.max(calorieDays, proteinDays);
+    return {
+      calories: calorieDays > 0 ? Math.round(totalCalories / calorieDays) : 0,
+      protein: proteinDays > 0 ? Math.round(totalProtein / proteinDays) : 0,
+      daysTracked,
+    };
   };
 
   return {

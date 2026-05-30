@@ -59,7 +59,7 @@ export async function sendToOpenRouter(apiKey, model, messages, systemPrompt) {
   };
 }
 
-export async function sendToAnthropic(apiKey, model, messages, systemPrompt) {
+export async function sendToAnthropic(apiKey, model, messages, systemPrompt, opts = {}) {
   const cleanKey = sanitizeKey(apiKey);
   const formattedMessages = messages.map((m) => {
     // Handle multimodal messages (text + images)
@@ -79,12 +79,30 @@ export async function sendToAnthropic(apiKey, model, messages, systemPrompt) {
 
   const body = {
     model: model || 'claude-sonnet-4-6',
-    max_tokens: 1024,
+    // Bumped from 1024. Coach answers were truncating mid-thought. 4096 is a
+    // safe non-streaming default (well under SDK 10-min timeout window).
+    max_tokens: opts.maxTokens || 4096,
     messages: formattedMessages,
   };
 
+  // System prompt as a cached text block — enables prompt caching when the
+  // same prompt repeats inside the cache TTL (5 min default). Coach's system
+  // prompt rebuilds with current context every send, so cache hits happen
+  // mainly within rapid back-and-forth (where the user hasn't logged a meal
+  // or workout between turns). Even partial hits save ~90% on input tokens.
   if (systemPrompt) {
-    body.system = systemPrompt;
+    body.system = [
+      { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+    ];
+  }
+
+  // Anthropic server-side web search tool. Lets Coach look up info (food
+  // macros, exercise form, etc.) without the user pasting URLs. $0.01/search.
+  // Caller passes opts.webSearch: true to enable.
+  if (opts.webSearch) {
+    body.tools = [
+      { type: 'web_search_20250305', name: 'web_search', max_uses: 3 },
+    ];
   }
 
   const response = await fetch(ANTHROPIC_URL, {
@@ -104,12 +122,21 @@ export async function sendToAnthropic(apiKey, model, messages, systemPrompt) {
   }
 
   const data = await response.json();
+  // Web search and tool use mean the response can have multiple content
+  // blocks (text, server_tool_use, web_search_tool_result). Concatenate all
+  // text blocks — old `data.content?.[0]?.text` only read the first block
+  // and would drop the actual answer when a tool ran first.
+  const textBlocks = (data.content || []).filter((b) => b.type === 'text');
+  const content = textBlocks.map((b) => b.text).join('').trim();
   return {
-    content: data.content?.[0]?.text || '',
+    content,
     usage: {
       input: data.usage?.input_tokens || 0,
       output: data.usage?.output_tokens || 0,
+      cacheRead: data.usage?.cache_read_input_tokens || 0,
+      cacheCreate: data.usage?.cache_creation_input_tokens || 0,
     },
+    stopReason: data.stop_reason,
   };
 }
 
@@ -130,7 +157,7 @@ export async function sendToCLI(model, messages, systemPrompt) {
 }
 
 export async function sendMessage(settings, messages, systemPrompt) {
-  const { provider, openrouterKey, anthropicKey, model, anthropicModel } = settings;
+  const { provider, openrouterKey, anthropicKey, model, anthropicModel, enableWebSearch } = settings;
 
   if (provider === 'cli') {
     return sendToCLI(anthropicModel || 'claude-sonnet-4-6', messages, systemPrompt);
@@ -139,7 +166,10 @@ export async function sendMessage(settings, messages, systemPrompt) {
     return sendToOpenRouter(openrouterKey, model, messages, systemPrompt);
   } else {
     if (!anthropicKey) throw new Error('Anthropic API key not configured');
-    return sendToAnthropic(anthropicKey, anthropicModel, messages, systemPrompt);
+    // Web search defaults ON for Anthropic provider — costs ~$0.01/search,
+    // dramatically reduces the need for users to paste URLs. Settings can flip off.
+    const webSearch = enableWebSearch !== false;
+    return sendToAnthropic(anthropicKey, anthropicModel, messages, systemPrompt, { webSearch });
   }
 }
 
