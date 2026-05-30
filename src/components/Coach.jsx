@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { differenceInDays, format } from 'date-fns';
-import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Link, ChevronDown, ChevronRight, Settings } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Link, ChevronDown, ChevronRight, Settings, Camera } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
 import { useUserProfile } from '../hooks/useUserProfile';
@@ -105,6 +105,7 @@ export default function Coach({ onClose }) {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -721,12 +722,32 @@ export default function Coach({ onClose }) {
         )}
         <div className="flex gap-2 items-end">
           <button
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={isLoading}
+            title="Take photo"
+            className="bg-surface border border-border p-3 rounded-xl text-text-muted hover:text-text disabled:opacity-50 shrink-0"
+          >
+            <Camera size={20} />
+          </button>
+          <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading}
+            title="Choose from gallery"
             className="bg-surface border border-border p-3 rounded-xl text-text-muted hover:text-text disabled:opacity-50 shrink-0"
           >
             <Image size={20} />
           </button>
+          {/* Separate inputs so the camera capture hint stays on its own button.
+              Toggling capture via removeAttribute (like MealLogger does) is fragile —
+              browsers don't all honour mid-flight attribute changes. */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleImageSelect}
+            className="hidden"
+          />
           <input
             ref={fileInputRef}
             type="file"
