@@ -4,10 +4,14 @@ A minimalist PWA for tracking strength training and weight loss with AI coaching
 
 ## Live Environments
 
-| Environment | URL | Branch |
-|-------------|-----|--------|
-| **Production** | [spitefulgrain40.github.io/Pump](https://spitefulgrain40.github.io/Pump/) | `gh-pages` |
-| **Test/Sandbox** | [spitefulgrain40.github.io/Pump/test](https://spitefulgrain40.github.io/Pump/test/) | `gh-pages-test` |
+GitHub Pages serves both environments from **`master:/docs/`** — they share one
+Pages source, just different subdirectories. The `gh-pages` and `gh-pages-test`
+branches in the repo are legacy / orphaned.
+
+| Environment | URL | Source on `master` |
+|-------------|-----|--------------------|
+| **Production** | [spitefulgrain40.github.io/Pump](https://spitefulgrain40.github.io/Pump/) | `docs/` |
+| **Test/Sandbox** | [spitefulgrain40.github.io/Pump/test](https://spitefulgrain40.github.io/Pump/test/) | `docs/test/` |
 
 ## Features
 
@@ -34,17 +38,26 @@ npm run dev
 
 ## Deployment
 
-### Production (gh-pages)
+Both environments deploy by committing build artefacts to `master`. The deploy
+scripts use a git worktree so you don't have to switch off your feature branch.
+
+### Test Environment
 ```bash
-npm run build
-# Deploy dist/ to gh-pages branch
+npm run deploy:test
+# Builds dist/, copies into master:docs/test/, pushes master.
+# Touches docs/test/ only — production at /Pump/ is not affected.
 ```
 
-### Test Environment (gh-pages-test)
+### Production
 ```bash
-npm run build
-# Deploy dist/ to gh-pages-test branch under /test subdirectory
+npm run deploy
+# Builds dist/, stamps sw.js, copies into master:docs/
 ```
+
+> **Why test deploys touch `master`**: GitHub Pages reads from `master:/docs/`,
+> so anything under `docs/test/` only becomes visible at `/Pump/test/` once it
+> lives on `master`. The orphan `gh-pages-test` branch is not served and is
+> safe to ignore (or delete).
 
 ## Data Storage
 
