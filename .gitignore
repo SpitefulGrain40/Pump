@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 .gh-pages-test-worktree
+.deploy-master-worktree
 *.local
 
 # Editor directories and files
