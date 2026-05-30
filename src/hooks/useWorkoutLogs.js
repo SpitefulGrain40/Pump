@@ -16,13 +16,29 @@ export function useWorkoutLogs() {
     const now = new Date().toISOString();
     const newPRs = [];
 
-    exercises.forEach((ex) => {
-      if (!ex.actual || ex.actual.weight.length === 0) return;
+    // Drop skipped exercises and exercises with no completed sets entirely —
+    // they don't belong in the log and must never produce PRs.
+    const loggable = (exercises || []).filter((ex) => {
+      if (ex?.skipped) return false;
+      if (!ex?.actual || !Array.isArray(ex.actual.sets)) return false;
+      const completedCount = ex.actual.sets.filter(Boolean).length;
+      return completedCount > 0;
+    });
 
-      const maxWeight = Math.max(...ex.actual.weight.filter((w) => w > 0));
+    loggable.forEach((ex) => {
+      // Only count weights from sets that were actually completed (checked).
+      const completedWeights = ex.actual.sets
+        .map((done, i) => (done ? Number(ex.actual.weight?.[i]) : null))
+        .filter((w) => w !== null && Number.isFinite(w) && w > 0);
+
+      if (completedWeights.length === 0) return; // safety: bodyweight exercise or all zero — no PR
+
+      const maxWeight = Math.max(...completedWeights);
+      if (!Number.isFinite(maxWeight) || maxWeight <= 0) return; // guard against Infinity
+
       const currentPR = prs[ex.name];
-
-      if (!currentPR || maxWeight > currentPR.weight) {
+      const currentBest = Number(currentPR?.weight);
+      if (!currentPR || !Number.isFinite(currentBest) || maxWeight > currentBest) {
         newPRs.push({ name: ex.name, weight: maxWeight, date: now });
         setPRs((prev) => ({
           ...prev,
@@ -31,7 +47,7 @@ export function useWorkoutLogs() {
       }
     });
 
-    update(workoutId, { completedAt: now, exercises });
+    update(workoutId, { completedAt: now, exercises: loggable });
     return newPRs;
   };
 
@@ -70,9 +86,20 @@ export function useWorkoutLogs() {
     return history.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, limit);
   };
 
-  const getPR = (exerciseName) => prs[exerciseName] || null;
+  // Filter out malformed PRs (Infinity/null from old buggy logs) before exposing.
+  const isValidPR = (pr) => pr && Number.isFinite(Number(pr.weight)) && Number(pr.weight) > 0;
+  const getPR = (exerciseName) => {
+    const pr = prs[exerciseName];
+    return isValidPR(pr) ? pr : null;
+  };
 
-  const getAllPRs = () => prs;
+  const getAllPRs = () => {
+    const out = {};
+    for (const [name, pr] of Object.entries(prs)) {
+      if (isValidPR(pr)) out[name] = pr;
+    }
+    return out;
+  };
 
   return {
     logs,

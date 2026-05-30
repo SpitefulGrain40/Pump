@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { EXERCISE_LIBRARY } from '../utils/dataSchemas';
 import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -12,7 +13,7 @@ import {
   Legend,
   Filler,
 } from 'chart.js';
-import { TrendingDown, Trophy, Flame, Calendar, Settings } from 'lucide-react';
+import { TrendingDown, Trophy, Flame, Calendar, Settings, ChevronDown, ChevronRight } from 'lucide-react';
 import { useWeightHistory } from '../hooks/useWeightHistory';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useWorkoutLogs, useWorkoutSchedule } from '../hooks/useWorkoutLogs';
@@ -124,6 +125,28 @@ export default function Progress({ onNavigate }) {
   const prList = Object.entries(prs)
     .map(([name, data]) => ({ name, ...data }))
     .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // Categorise PRs by exercise category from EXERCISE_LIBRARY. Anything not
+  // in the library falls into "Other".
+  const categorisedPRs = useMemo(() => {
+    const lookup = Object.fromEntries(EXERCISE_LIBRARY.map((e) => [e.name, e.category]));
+    const groups = { push: [], pull: [], legs: [], core: [], cardio: [], other: [] };
+    for (const pr of prList) {
+      if (!Number.isFinite(Number(pr.weight)) || Number(pr.weight) <= 0) continue;
+      const cat = lookup[pr.name] || 'other';
+      (groups[cat] || groups.other).push(pr);
+    }
+    // Sort each group by weight DESC so "top 5" is the heaviest 5.
+    for (const k of Object.keys(groups)) {
+      groups[k].sort((a, b) => Number(b.weight) - Number(a.weight));
+    }
+    return groups;
+  }, [prList]);
+
+  const CATEGORY_LABELS = { push: 'Push', pull: 'Pull', legs: 'Legs', core: 'Core', cardio: 'Cardio', other: 'Other' };
+  const CATEGORY_ORDER = ['push', 'pull', 'legs', 'core', 'cardio', 'other'];
+  const [expandedCats, setExpandedCats] = useState({});
+  const toggleCat = (k) => setExpandedCats((s) => ({ ...s, [k]: !s[k] }));
 
   const workoutDays = useMemo(() => {
     const last30 = [];
@@ -279,28 +302,59 @@ export default function Progress({ onNavigate }) {
         </div>
       </div>
 
-      {/* PR List */}
+      {/* PR List — categorised, top 5 per group with expand */}
       <div className="bg-surface rounded-xl p-4">
         <h3 className="font-medium mb-3 flex items-center gap-2">
           <Trophy size={18} className="text-warning" />
           Personal Records
         </h3>
         {prList.length > 0 ? (
-          <div className="space-y-2">
-            {prList.slice(0, 10).map((pr) => (
-              <div
-                key={pr.name}
-                className="flex items-center justify-between py-2 border-b border-border last:border-0"
-              >
-                <span className="text-sm">{pr.name}</span>
-                <div className="text-right">
-                  <span className="font-medium text-accent">{pr.weight} kg</span>
-                  <span className="text-xs text-text-muted ml-2">
-                    {format(parseISO(pr.date), 'MMM d')}
-                  </span>
+          <div className="space-y-3">
+            {CATEGORY_ORDER.map((cat) => {
+              const items = categorisedPRs[cat] || [];
+              if (items.length === 0) return null;
+              const isOpen = !!expandedCats[cat];
+              const visible = isOpen ? items : items.slice(0, 5);
+              return (
+                <div key={cat}>
+                  <button
+                    onClick={() => toggleCat(cat)}
+                    className="w-full flex items-center justify-between text-xs text-text-muted hover:text-text py-1"
+                  >
+                    <span className="font-medium uppercase tracking-wide">
+                      {CATEGORY_LABELS[cat]} <span className="opacity-60">({items.length})</span>
+                    </span>
+                    {items.length > 5 && (
+                      isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />
+                    )}
+                  </button>
+                  <div className="mt-1">
+                    {visible.map((pr) => (
+                      <div
+                        key={pr.name}
+                        className="flex items-center justify-between py-1.5 border-b border-border last:border-0"
+                      >
+                        <span className="text-sm truncate mr-2">{pr.name}</span>
+                        <div className="text-right shrink-0">
+                          <span className="font-medium text-accent">{pr.weight} kg</span>
+                          <span className="text-xs text-text-muted ml-2">
+                            {format(parseISO(pr.date), 'MMM d')}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    {!isOpen && items.length > 5 && (
+                      <button
+                        onClick={() => toggleCat(cat)}
+                        className="text-xs text-accent mt-1 hover:underline"
+                      >
+                        Show {items.length - 5} more
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="text-sm text-text-muted">Complete workouts to track PRs</p>

@@ -142,10 +142,10 @@ export default function Settings() {
           )}
           <div className="grid grid-cols-2 gap-3">
             <Field
-              label="Body Fat %"
+              label="Body Fat % (manual)"
               type="number"
-              value={profile.bodyFatPercentage}
-              onChange={(v) => updateProfile({ bodyFatPercentage: parseFloat(v) })}
+              value={profile.bodyFatManual ?? profile.bodyFatPercentage}
+              onChange={(v) => updateProfile({ bodyFatManual: parseFloat(v) })}
             />
             <Field
               label="TDEE"
@@ -154,6 +154,9 @@ export default function Settings() {
               onChange={(v) => updateProfile({ tdee: parseInt(v) })}
             />
           </div>
+          <p className="text-xs text-text-muted -mt-2">
+            Manual field is for DEXA / smart-scale / calipers. Coach also computes Navy method from neck/waist{profile.gender === 'female' ? '/hips' : ''} measurements automatically.
+          </p>
 
           {/* Goals */}
           <div className="text-xs text-text-muted font-medium uppercase tracking-wide pt-2">Goals</div>

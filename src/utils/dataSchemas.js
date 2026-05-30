@@ -12,7 +12,8 @@ export const DEFAULT_USER_PROFILE = {
   neckCircumference: null, // cm
   waistCircumference: null, // cm (at navel)
   hipCircumference: null, // cm (women only, at widest point)
-  bodyFatPercentage: null,
+  bodyFatPercentage: null, // legacy: combined field — kept for back-compat; new code reads bodyFatManual
+  bodyFatManual: null, // user-entered (DEXA / scan / calipers / smart scale) — independent of Navy calc
   // Nutrition targets
   tdee: null,
   calorieTarget: { min: null, max: null },
@@ -40,6 +41,10 @@ export const DEFAULT_AI_SETTINGS = {
   anthropicKey: '',
   model: 'anthropic/claude-haiku-4-5-20251001',
   anthropicModel: 'claude-sonnet-4-6',
+  // Enable Anthropic's server-side web search tool for Coach (~$0.01/search,
+  // up to 3 per response). Lets Coach look up macros/info without users
+  // pasting URLs. No-op for OpenRouter / CLI providers.
+  enableWebSearch: true,
 };
 
 export const createWorkoutLog = (date, exercises) => ({

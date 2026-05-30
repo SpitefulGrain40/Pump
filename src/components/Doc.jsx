@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Loader2, Heart, AlertCircle, X, Settings, ChevronDown, LogOut } from 'lucide-react';
+import { Send, Loader2, Brain, AlertCircle, X, Settings, ChevronDown, LogOut } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
 import { sendToAnthropic } from '../services/ai/providers';
@@ -124,7 +124,7 @@ TRANSCRIPT:
 ${transcript}`;
 
       const [sessionResult, longTermResult] = await Promise.all([
-        sendToAnthropic(apiKey, 'claude-opus-4-5', [{ role: 'user', content: sessionSummaryPrompt }], null),
+        sendToAnthropic(apiKey, 'claude-sonnet-4-6', [{ role: 'user', content: sessionSummaryPrompt }], null),
         (async () => {
           const updatePrompt = longTermSummary
             ? `You are maintaining a long-term therapeutic memory document. Below is the existing summary, followed by a new session transcript. Merge the new insights into the existing summary, keeping the document concise (300-400 words max). Update, deepen, or add to existing themes — do not simply append. Return only the updated summary document.
@@ -139,7 +139,7 @@ ${transcript}`
 TRANSCRIPT:
 ${transcript}`;
 
-          return sendToAnthropic(apiKey, 'claude-opus-4-5', [{ role: 'user', content: updatePrompt }], null);
+          return sendToAnthropic(apiKey, 'claude-sonnet-4-6', [{ role: 'user', content: updatePrompt }], null);
         })(),
       ]);
 
@@ -209,7 +209,7 @@ ${transcript}`;
         .slice(-20)
         .map(m => ({ role: m.role, content: m.content }));
 
-      const response = await sendToAnthropic(apiKey, 'claude-opus-4-5', chatMessages, contextualPrompt);
+      const response = await sendToAnthropic(apiKey, 'claude-sonnet-4-6', chatMessages, contextualPrompt);
 
       const assistantMessage = { role: 'assistant', content: response.content, timestamp: Date.now() };
       setMessages([...updatedMessages, assistantMessage]);
@@ -234,7 +234,7 @@ ${transcript}`;
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Heart size={20} className="text-accent" />
+            <Brain size={20} className="text-accent" />
             <h1 className="text-lg font-semibold">Doc</h1>
           </div>
           <div className="flex items-center gap-1">
@@ -275,7 +275,7 @@ ${transcript}`;
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && !isLoading && (
           <div className="text-center text-text-muted py-12">
-            <Heart size={40} className="mx-auto mb-3 opacity-30" />
+            <Brain size={40} className="mx-auto mb-3 opacity-30" />
             <p className="text-sm font-medium text-text">This is your space.</p>
             <p className="text-sm mt-1 opacity-70">Say whatever is on your mind.</p>
           </div>
