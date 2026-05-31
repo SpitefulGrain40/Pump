@@ -265,7 +265,12 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
               <div>
                 <div className="text-lg font-bold text-accent">{displayedBF}%</div>
                 <div className="text-xs text-text-muted">
-                  Body Fat{source === 'navy' ? ' (Navy)' : source === 'manual' ? ' (manual)' : ''}
+                  Body Fat{
+                    source === 'navy' ? ' (Navy)'
+                    : source === 'manual' ? ' (manual)'
+                    : source === 'legacy' ? ' (Auto BFP)'
+                    : ''
+                  }
                 </div>
                 {showSecondary && (
                   <div className="text-[10px] text-text-muted/70 mt-0.5">
