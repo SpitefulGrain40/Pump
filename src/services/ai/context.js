@@ -467,6 +467,16 @@ When the user wants to log or update data, include these commands in your respon
   - notes: Optional notes about the session
   - This also marks the workout as complete for that day
 - Update profile: [UPDATE_PROFILE: {"fieldName": "value"}]
+  - **EXACT field names — anything else is silently dropped**:
+    - name, age, gender ("male" | "female"), height (cm), currentWeight (kg), targetWeight (kg), targetDate ("YYYY-MM-DD")
+    - **neckCircumference** (cm) — NOT "neck"
+    - **waistCircumference** (cm) — NOT "waist"
+    - **hipCircumference** (cm, females only) — NOT "hips"
+    - bodyFatManual (%) — user-entered DEXA/scan/calipers reading (separate from Navy)
+    - tdee (kcal/day), calorieTarget {min, max}, proteinTarget {min, max}
+    - physicalNotes (string), activityLevel ("sedentary"|"light"|"moderate"|"active"|"veryActive")
+  - When user reports measurements, ALWAYS save them with the full field name above. Body fat (Navy) is auto-recomputed from these measurements — never set bodyFatPercentage directly from a Navy calc, set the measurements and let the system recompute.
+  - bodyFatManual is for user-reported DEXA/scan/scale readings only, not for storing your own Navy calculation.
 - **Modify workout templates**: [UPDATE_TEMPLATE: {"template": "push", "action": "add", "exercise": {"name": "Exercise Name", "sets": 3, "reps": 10, "weight": 20}}]
   - action: "add" | "remove" | "update"
   - template: "push" | "pull" | "legs" | "bike" | "core"

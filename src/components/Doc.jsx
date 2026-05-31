@@ -2,7 +2,24 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Loader2, Brain, AlertCircle, X, Settings, ChevronDown, LogOut } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
-import { sendToAnthropic } from '../services/ai/providers';
+import { sendToAnthropic, sendToCLI } from '../services/ai/providers';
+
+// Doc dispatcher — respects provider but pins model to Sonnet (Doc is therapy
+// work; previously hardcoded to Opus 4.5 which was killing the bill).
+// CLI mode routes through claude.exe (user's OAuth subscription, zero token cost).
+// Anthropic and OpenRouter modes both go direct to Anthropic with the user's key
+// because Doc requires Anthropic-quality outputs and shouldn't run on a free
+// OpenRouter model.
+async function sendDocMessage(aiSettings, messages, systemPrompt) {
+  const model = 'claude-sonnet-4-6';
+  if (aiSettings.provider === 'cli') {
+    return sendToCLI(model, messages, systemPrompt);
+  }
+  if (!aiSettings.anthropicKey) {
+    throw new Error('Doc requires an Anthropic API key, or switch provider to CLI in Settings.');
+  }
+  return sendToAnthropic(aiSettings.anthropicKey, model, messages, systemPrompt);
+}
 import { format } from 'date-fns';
 
 const INACTIVITY_MS = 30 * 60 * 1000;
@@ -70,10 +87,8 @@ export default function Doc() {
     return () => { if (inactivityTimer.current) clearTimeout(inactivityTimer.current); };
   }, [resetInactivityTimer]);
 
-  const getApiKey = () => {
-    if (aiSettings.provider === 'anthropic') return aiSettings.anthropicKey;
-    return aiSettings.anthropicKey; // Doc always uses Anthropic
-  };
+  // For UI gating only — "configured" means we have an Anthropic key OR are in CLI mode.
+  const isDocConfigured = () => aiSettings.provider === 'cli' || !!aiSettings.anthropicKey;
 
   const buildContextualSystemPrompt = () => {
     let fullPrompt = systemPrompt;
@@ -100,8 +115,7 @@ export default function Doc() {
     const currentMessages = messages;
     setIsEndingSession(true);
 
-    const apiKey = getApiKey();
-    if (!apiKey) {
+    if (!isDocConfigured()) {
       setIsEndingSession(false);
       return;
     }
@@ -124,7 +138,7 @@ TRANSCRIPT:
 ${transcript}`;
 
       const [sessionResult, longTermResult] = await Promise.all([
-        sendToAnthropic(apiKey, 'claude-sonnet-4-6', [{ role: 'user', content: sessionSummaryPrompt }], null),
+        sendDocMessage(aiSettings, [{ role: 'user', content: sessionSummaryPrompt }], null),
         (async () => {
           const updatePrompt = longTermSummary
             ? `You are maintaining a long-term therapeutic memory document. Below is the existing summary, followed by a new session transcript. Merge the new insights into the existing summary, keeping the document concise (300-400 words max). Update, deepen, or add to existing themes — do not simply append. Return only the updated summary document.
@@ -139,7 +153,7 @@ ${transcript}`
 TRANSCRIPT:
 ${transcript}`;
 
-          return sendToAnthropic(apiKey, 'claude-sonnet-4-6', [{ role: 'user', content: updatePrompt }], null);
+          return sendDocMessage(aiSettings, [{ role: 'user', content: updatePrompt }], null);
         })(),
       ]);
 
@@ -185,9 +199,8 @@ ${transcript}`;
   const handleSend = async (messageText = input) => {
     if (!messageText.trim() || isLoading) return;
 
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      setError('No Anthropic API key configured. Please add one in Settings.');
+    if (!isDocConfigured()) {
+      setError('Doc needs an Anthropic API key, or switch provider to CLI in Settings.');
       return;
     }
 
@@ -209,7 +222,7 @@ ${transcript}`;
         .slice(-20)
         .map(m => ({ role: m.role, content: m.content }));
 
-      const response = await sendToAnthropic(apiKey, 'claude-sonnet-4-6', chatMessages, contextualPrompt);
+      const response = await sendDocMessage(aiSettings, chatMessages, contextualPrompt);
 
       const assistantMessage = { role: 'assistant', content: response.content, timestamp: Date.now() };
       setMessages([...updatedMessages, assistantMessage]);
