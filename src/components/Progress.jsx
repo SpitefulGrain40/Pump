@@ -16,7 +16,7 @@ import {
 import { TrendingDown, Trophy, Flame, Calendar, Settings, ChevronDown, ChevronRight } from 'lucide-react';
 import { useWeightHistory } from '../hooks/useWeightHistory';
 import { useUserProfile } from '../hooks/useUserProfile';
-import { useWorkoutLogs, useWorkoutSchedule } from '../hooks/useWorkoutLogs';
+import { useWorkoutLogs, useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { format, subDays, parseISO, isWithinInterval, startOfDay } from 'date-fns';
@@ -56,6 +56,7 @@ export default function Progress({ onNavigate }) {
   const { profile, getProgress, getWeightLost } = useUserProfile();
   const { getAllPRs } = useWorkoutLogs();
   const { schedule } = useWorkoutSchedule();
+  const { templates } = useWorkoutTemplates();
   const { getDailyTotals } = useNutritionLogs();
   const [completedDays] = useLocalStorage('pump-completed-workouts', {});
 
@@ -126,10 +127,39 @@ export default function Progress({ onNavigate }) {
     .map(([name, data]) => ({ name, ...data }))
     .sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  // Categorise PRs by exercise category from EXERCISE_LIBRARY. Anything not
-  // in the library falls into "Other".
+  // Map a workout-template key (e.g. "push", "bike", "shoulders") to a PR
+  // category. Custom exercises don't have a category field, but they do live
+  // inside a template — Coach naturally adds push exercises to the push
+  // template etc. So if an exercise is in a template, we infer its category
+  // from the template name. This means user-added exercises categorise
+  // automatically with no extra config — they just need to be added via
+  // Coach's UPDATE_TEMPLATE command (which Coach does by default).
+  const templateToCategory = (key) => {
+    const k = String(key || '').toLowerCase();
+    if (k.includes('push') || k.includes('chest') || k.includes('shoulder')) return 'push';
+    if (k.includes('pull') || k.includes('back') || k.includes('bicep')) return 'pull';
+    if (k.includes('leg') || k.includes('quad') || k.includes('squat') || k.includes('glute') || k.includes('hamstring')) return 'legs';
+    if (k.includes('core') || k.includes('abs') || k.includes('ab')) return 'core';
+    if (k.includes('bike') || k.includes('cardio') || k.includes('skate') || k.includes('run') || k === 'active') return 'cardio';
+    return null;
+  };
+
+  // Categorise PRs by: 1) hardcoded EXERCISE_LIBRARY, 2) custom-template
+  // membership (auto-inferred), 3) fallback to "Other".
   const categorisedPRs = useMemo(() => {
     const lookup = Object.fromEntries(EXERCISE_LIBRARY.map((e) => [e.name, e.category]));
+
+    // Overlay categories from user's workout templates — exercises Coach added
+    // via UPDATE_TEMPLATE land here. Library entries take precedence (don't
+    // overwrite known exercises with template-inferred categories).
+    for (const [tmplKey, tmpl] of Object.entries(templates || {})) {
+      const cat = templateToCategory(tmplKey);
+      if (!cat) continue;
+      for (const ex of tmpl?.exercises || []) {
+        if (ex?.name && !lookup[ex.name]) lookup[ex.name] = cat;
+      }
+    }
+
     const groups = { push: [], pull: [], legs: [], core: [], cardio: [], other: [] };
     for (const pr of prList) {
       if (!Number.isFinite(Number(pr.weight)) || Number(pr.weight) <= 0) continue;
@@ -141,7 +171,7 @@ export default function Progress({ onNavigate }) {
       groups[k].sort((a, b) => Number(b.weight) - Number(a.weight));
     }
     return groups;
-  }, [prList]);
+  }, [prList, templates]);
 
   const CATEGORY_LABELS = { push: 'Push', pull: 'Pull', legs: 'Legs', core: 'Core', cardio: 'Cardio', other: 'Other' };
   const CATEGORY_ORDER = ['push', 'pull', 'legs', 'core', 'cardio', 'other'];
