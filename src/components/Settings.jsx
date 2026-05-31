@@ -8,7 +8,7 @@ import { useUserProfile } from '../hooks/useUserProfile';
 import { testConnection } from '../services/ai';
 
 export default function Settings() {
-  const { aiSettings, updateAISettings } = useSettings();
+  const { aiSettings, updateAISettings, isConfigured } = useSettings();
   const { profile, updateProfile } = useUserProfile();
   const { exportData, importData, clearAllData } = useBackup();
 
@@ -353,7 +353,7 @@ export default function Settings() {
           {/* Test Connection */}
           <button
             onClick={handleTestConnection}
-            disabled={isTesting || !getActiveApiKey()}
+            disabled={isTesting || !isConfigured()}
             className="w-full py-2 bg-surface rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {isTesting ? (

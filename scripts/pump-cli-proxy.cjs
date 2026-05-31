@@ -8,8 +8,16 @@
  */
 
 const http = require('http');
+const os = require('os');
 const { spawn } = require('child_process');
 const PORT = 3141;
+// Isolate claude.exe from any CLAUDE.md or .claude/ in the proxy's cwd so it
+// doesn't auto-discover and inject Pump's own dev-time instructions into
+// Coach responses. We can't use --bare (which would prevent CLAUDE.md
+// discovery) because --bare also disables OAuth/keychain auth — and the
+// whole point of CLI provider is to use the user's OAuth subscription
+// instead of an API key.
+const SAFE_CWD = os.tmpdir();
 
 const server = http.createServer((req, res) => {
   // CORS headers so the browser app can call this
@@ -58,13 +66,13 @@ const server = http.createServer((req, res) => {
 
     const child = spawn(claudePath, [
       '--print',
-      '--bare',
       '--no-session-persistence',
       '--tools', '',
       '--model', model,
       '--output-format', 'text',
       '--system-prompt', systemPrompt || 'You are a helpful assistant.',
     ], {
+      cwd: SAFE_CWD,           // prevents CLAUDE.md auto-discovery + .claude/settings.json hook loading
       shell: false,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
