@@ -78,11 +78,13 @@ src/
 │       ├── providers.js       # OpenRouter + Anthropic + CLI proxy adapters, multimodal support
 │       └── context.js         # System prompt builder, context aggregator, command parser
 └── utils/
-    └── dataSchemas.js         # Data structures, default exercise library, workout templates
+    ├── dataSchemas.js         # Data structures, default exercise library, workout templates
+    └── calculations.js        # Navy body fat, resolveBodyFat helper
 
 scripts/
 ├── pump-cli-proxy.cjs         # Local dev proxy: routes Coach through claude CLI
-└── deploy.cjs                 # Stamps sw.js with build date, copies dist → docs/
+├── deploy.cjs                 # Stamps sw.js with build date, copies dist → docs/
+└── deploy-test.cjs            # Worktree-based deploy to docs/test/ for staging
 
 public/
 └── sw.js                      # Service worker: network-first for HTML, cache-first for assets
@@ -328,21 +330,23 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD`) so Android users 
 
 ---
 
-## Current State (as of 2026-05-20)
+## Current State (as of 2026-05-31)
 
 ### Completed & Working
 - Full onboarding wizard with skip/restore option
-- Dashboard with daily goals, workout, nutrition summary
+- Dashboard with daily goals, workout, nutrition summary, Navy body fat method
 - Workout scheduling with flexible shift patterns (A/B fortnightly, 4-on/4-off, custom)
-- Workout logger with set/rep/weight tracking, PR detection, draft auto-save
-- Nutrition logging (manual + photo analysis), daily targets, 7-day averages
-- Coach AI with full context, command execution, image attachments, URL fetching, chat search
-- Doc AI therapy companion with two-tier session memory
-- Progress charts, PR records, 30-day consistency grid
+- Workout logger with set/rep/weight tracking, PR detection, draft auto-save, skip exercise
+- Nutrition logging (manual + photo analysis via Haiku), daily targets, 7-day averages
+- Coach AI with full context, command execution, image attachments (camera + gallery), URL fetching, web search, chat search
+- Doc AI therapy companion with two-tier session memory (Sonnet 4.6, not Opus)
+- Progress charts, categorised PR records (push/pull/legs/core/cardio), 30-day consistency grid
 - Backup/restore via JSON export
 - Service worker with cache-busting for automatic Android updates
 - Schedule phase colouring for shift workers
 - Mid-workout Coach access
+- Prompt caching on Anthropic API calls (system prompt cached)
+- Test deploy workflow (`npm run deploy:test` → `docs/test/` on master)
 
 ### Known Quirks & Limitations
 - **Cross-device sync**: Not supported — backup/restore is the only migration path
@@ -354,11 +358,10 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD`) so Android users 
 
 ### Next Steps / Potential Improvements
 - App rename (current name "Pump" is a placeholder — "Hale" is the leading candidate, trademark-clear)
+- Chat history pruning strategy (MAX_STORED_MESSAGES ~500) as localStorage grows over time
 - URL allowlist for Jina fetching (scheme validation: http/https only)
 - Backup import field whitelist (prevent unexpected localStorage keys)
 - CLI proxy model parameter whitelist
-- Explore web search tool integration for Coach (Anthropic's tool at $0.01/search — useful for "look up macros for X" type queries without user pasting URLs)
-- Consider chat history pruning strategy as localStorage grows over time
 
 ---
 
