@@ -2,6 +2,7 @@ import { useLocalStorage } from './useLocalStorage';
 import { DEFAULT_USER_PROFILE } from '../utils/dataSchemas';
 import { differenceInDays, parseISO } from 'date-fns';
 import { useEffect } from 'react';
+import { migrateGoal } from '../utils/goal';
 
 export function useUserProfile() {
   const [profile, setProfile, reset] = useLocalStorage('pump-user-profile', DEFAULT_USER_PROFILE);
@@ -29,6 +30,13 @@ export function useUserProfile() {
       }));
     }
   }, [profile.schedulePattern, setProfile]);
+
+  // Build the goal model for profiles created before it existed (runs once).
+  useEffect(() => {
+    if (!profile.goal) {
+      setProfile(prev => ({ ...prev, goal: migrateGoal(prev) }));
+    }
+  }, [profile.goal, setProfile]);
 
   const updateProfile = (updates) => {
     setProfile((prev) => ({ ...prev, ...updates }));
