@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { Line } from 'react-chartjs-2';
 import { differenceInDays, parseISO, format } from 'date-fns';
 import { Target } from 'lucide-react';
@@ -32,11 +31,10 @@ export default function GoalCard({ profile, data }) {
   const goodDir = metric.goodDirection ? metric.goodDirection(goal.intent) : 'down';
   const deltaIsGood = delta == null ? null : (goodDir === 'up' ? delta >= 0 : delta <= 0);
 
-  const progress = useMemo(() => {
-    if (!metric.supportsTarget || targetValue == null) return { percent: null };
-    const start = series.length ? series[0].value : current;
-    return getGoalProgress({ start, current, target: targetValue });
-  }, [metric.supportsTarget, targetValue, series, current]);
+  // getGoalProgress is trivial arithmetic — no memoization needed.
+  const progress = (!metric.supportsTarget || targetValue == null)
+    ? { percent: null }
+    : getGoalProgress({ start: series.length ? series[0].value : current, current, target: targetValue });
 
   const daysLeft = targetDate ? differenceInDays(parseISO(targetDate), new Date()) : null;
 
