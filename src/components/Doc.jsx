@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Loader2, Brain, AlertCircle, X, Settings, ChevronDown, LogOut } from 'lucide-react';
+import { Send, Loader2, Brain, AlertCircle, X, Settings, LogOut } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
 import { sendToAnthropic, sendToCLI } from '../services/ai/providers';
@@ -58,7 +58,7 @@ export default function Doc() {
   const [longTermSummary, setLongTermSummary] = useLocalStorage('pump-doc-longterm', '');
   const [recentSessions, setRecentSessions] = useLocalStorage('pump-doc-sessions', []);
 
-  const { aiSettings, isConfigured } = useSettings();
+  const { aiSettings } = useSettings();
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const inactivityTimer = useRef(null);

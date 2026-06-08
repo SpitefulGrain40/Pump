@@ -179,7 +179,6 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
     const nextMonday = startOfWeek(addDays(today, 7), { weekStartsOn: 1 });
     const cycleStart = schedulePattern.cycleStart;
     const label0 = schedulePattern.labels?.[0] || 'A';
-    const label1 = schedulePattern.labels?.[1] || 'B';
     const isAlternating = schedulePattern.type === 'alternating' || schedulePattern.type === 'custom';
 
     const cycleInfo = isAlternating

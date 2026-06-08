@@ -120,7 +120,7 @@ export function useBackup() {
           if (data.coachSystemPrompt) localStorage.setItem('pump-coach-system-prompt', data.coachSystemPrompt);
 
           resolve({ success: true, exportedAt: data.exportedAt });
-        } catch (err) {
+        } catch {
           reject(new Error('Invalid backup file'));
         }
       };

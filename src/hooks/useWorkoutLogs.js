@@ -1,6 +1,6 @@
 import { useLocalStorage, useLocalStorageArray } from './useLocalStorage';
 import { createWorkoutLog, WORKOUT_TEMPLATES } from '../utils/dataSchemas';
-import { format, parseISO, isToday, startOfWeek, addDays } from 'date-fns';
+import { format, parseISO, startOfWeek, addDays } from 'date-fns';
 
 export function useWorkoutLogs() {
   const { items: logs, add, update, clear } = useLocalStorageArray('pump-workout-logs', []);

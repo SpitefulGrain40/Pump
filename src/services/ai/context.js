@@ -1,4 +1,4 @@
-import { format, parseISO, differenceInDays, subDays, addDays } from 'date-fns';
+import { format, parseISO, differenceInDays, subDays } from 'date-fns';
 
 // Build memory section for system prompt
 function formatMemories(memories) {
@@ -219,13 +219,11 @@ export function buildPerformanceContext(completedDays, weightHistory, nutritionL
 export function buildOnboardingPrompt(profile) {
   // Determine what's been collected (checking for explicit values, not defaults)
   const hasName = !!profile.name && profile.name.trim() !== '';
-  const hasGender = !!profile.gender; // Will always have a value due to default
   const hasAge = profile.age !== null && profile.age > 0;
   const hasHeight = profile.height !== null && profile.height > 0;
   const hasWeight = profile.currentWeight !== null && profile.currentWeight > 0;
   const hasNeck = profile.neckCircumference !== null && profile.neckCircumference > 0;
   const hasWaist = profile.waistCircumference !== null && profile.waistCircumference > 0;
-  const hasHips = profile.hipCircumference !== null || profile.gender === 'male';
   const hasTarget = profile.targetWeight !== null && profile.targetDate !== null;
   const hasSchedule = profile.schedulePattern?.cycleStart !== null || profile.schedulePattern?.weekAStart !== null;
 

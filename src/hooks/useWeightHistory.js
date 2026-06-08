@@ -1,4 +1,4 @@
-import { useLocalStorage, useLocalStorageArray } from './useLocalStorage';
+import { useLocalStorageArray } from './useLocalStorage';
 import { createWeightEntry } from '../utils/dataSchemas';
 
 export function useWeightHistory() {

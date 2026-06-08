@@ -29,5 +29,11 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // Allow the `const { omit, ...rest } = obj` pattern used to strip fields
+      // (e.g. dropping image/timestamp before persisting) without flagging the
+      // intentionally-unused sibling.
+      'no-unused-vars': ['error', { ignoreRestSiblings: true }],
+    },
   },
 ])

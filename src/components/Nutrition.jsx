@@ -3,11 +3,11 @@ import { Flame, Beef, ChevronLeft, ChevronRight, Trash2, Plus } from 'lucide-rea
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useWorkoutSchedule } from '../hooks/useWorkoutLogs';
-import { format, addDays, subDays, isToday, startOfDay } from 'date-fns';
+import { format, addDays, subDays, isToday } from 'date-fns';
 import MealLogger from './MealLogger';
 
 export default function Nutrition() {
-  const { meals, getMealsForDate, getDailyTotals, getWeeklyAverage, removeMeal } = useNutritionLogs();
+  const { getMealsForDate, getDailyTotals, getWeeklyAverage, removeMeal } = useNutritionLogs();
   const { profile, getCalorieTarget, getProteinTarget } = useUserProfile();
   const { schedule } = useWorkoutSchedule();
   const [selectedDate, setSelectedDate] = useState(new Date());

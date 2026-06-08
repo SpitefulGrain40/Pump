@@ -1,6 +1,6 @@
 import { useLocalStorageArray } from './useLocalStorage';
 import { createMealLog } from '../utils/dataSchemas';
-import { format, parseISO, startOfDay, isToday } from 'date-fns';
+import { format, parseISO, isToday } from 'date-fns';
 
 // Round to 1 decimal place — fixes float artifacts like 10.00000000000002
 const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;

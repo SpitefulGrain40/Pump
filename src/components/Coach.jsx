@@ -35,7 +35,7 @@ async function fetchUrlContent(url) {
 
 // Extract URLs from text
 function extractUrls(text) {
-  const urlRegex = /https?:\/\/[^\s<>\"']+/g;
+  const urlRegex = /https?:\/\/[^\s<>"']+/g;
   return text.match(urlRegex) || [];
 }
 
@@ -63,7 +63,7 @@ function CollapsibleUrlContent({ url, content }) {
 
 // Parse message content to separate text from URL content blocks
 function parseMessageWithUrls(content) {
-  const urlBlockRegex = /\n\n---\n\*\*Content from (https?:\/\/[^\*]+):\*\*\n([\s\S]*?)\n---/g;
+  const urlBlockRegex = /\n\n---\n\*\*Content from (https?:\/\/[^*]+):\*\*\n([\s\S]*?)\n---/g;
   const parts = [];
   let lastIndex = 0;
   let match;
@@ -90,7 +90,7 @@ const QUICK_PROMPTS = [
   { label: 'Am I on track?', prompt: "How am I doing with my weight loss goal? Am I on track?" },
 ];
 
-export default function Coach({ onClose }) {
+export default function Coach() {
   const [messages, setMessages] = useLocalStorage('pump-chat-history', []);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -116,7 +116,7 @@ export default function Coach({ onClose }) {
   const { aiSettings, isConfigured } = useSettings();
   const { profile, updateProfile } = useUserProfile();
   const { meals, logMeal } = useNutritionLogs();
-  const { logs: workoutLogs, logWorkout, prs, setPRs } = useWorkoutLogs();
+  const { logs: workoutLogs, prs, setPRs } = useWorkoutLogs();
   const { schedule, setWorkoutForDate, setSchedule } = useWorkoutSchedule();
   const { addExercise, removeExercise, updateExercise, setTemplate } = useWorkoutTemplates();
   const { logWeight, entries: weightHistory } = useWeightHistory();
@@ -380,7 +380,7 @@ export default function Coach({ onClose }) {
         try {
           const content = await fetchUrlContent(url);
           urlContents.push(`\n\n---\n**Content from ${url}:**\n${content}\n---`);
-        } catch (e) {
+        } catch {
           urlContents.push(`\n\n(Failed to fetch ${url})`);
         }
       }

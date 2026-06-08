@@ -19,7 +19,7 @@ import { useUserProfile } from '../hooks/useUserProfile';
 import { useWorkoutLogs, useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { format, subDays, parseISO, isWithinInterval, startOfDay } from 'date-fns';
+import { format, subDays, parseISO } from 'date-fns';
 
 ChartJS.register(
   CategoryScale,
@@ -102,8 +102,6 @@ export default function Progress({ onNavigate }) {
         calories: totals.calories,
       });
     }
-
-    const targetMid = (profile.calorieTarget.min + profile.calorieTarget.max) / 2;
 
     return {
       labels: days.map((d) => d.date),

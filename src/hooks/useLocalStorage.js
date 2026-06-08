@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 // Custom event for same-tab localStorage updates
 const STORAGE_UPDATE_EVENT = 'local-storage-update';

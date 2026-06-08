@@ -12,6 +12,12 @@ dist
 dist-ssr
 .gh-pages-test-worktree
 .deploy-master-worktree
+# Stray build output that must never be committed to the repo root again
+# (production is served from docs/, not these). Anchored to root so real
+# source dirs named test/ elsewhere are unaffected.
+/assets/
+/test/
+.superpowers/
 *.local
 
 # Editor directories and files
