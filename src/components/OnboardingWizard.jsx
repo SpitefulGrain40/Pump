@@ -10,6 +10,8 @@ import {
   getBodyFatCategory,
 } from '../utils/calculations';
 import { format, addDays, startOfWeek } from 'date-fns';
+import { INTENTS, INTENT_LABELS, INTENT_DESCRIPTIONS, DEFAULT_METRIC_FOR_INTENT } from '../utils/goal';
+import { useMeasurementHistory } from '../hooks/useMeasurementHistory';
 
 const STEPS = [
   { id: 'apikey', title: 'API Key', icon: Key },
@@ -31,6 +33,7 @@ const SCHEDULE_TYPES = [
 export default function OnboardingWizard({ onComplete, onSkip }) {
   const { profile, updateProfile } = useUserProfile();
   const { aiSettings, updateAISettings } = useSettings();
+  const { logMeasurement } = useMeasurementHistory();
   const [step, setStep] = useState(0);
   const [showApiKey, setShowApiKey] = useState(false);
   const [formData, setFormData] = useState({
@@ -45,6 +48,7 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
     hipCircumference: profile.hipCircumference || '',
     targetWeight: profile.targetWeight || '',
     targetDate: profile.targetDate || '',
+    intent: profile.goal?.intent || 'maintain',
     physicalNotes: profile.physicalNotes || '',
     scheduleType: profile.schedulePattern?.type || 'alternating',
     cycleStart: profile.schedulePattern?.cycleStart || profile.schedulePattern?.weekAStart || '',
@@ -101,7 +105,7 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
         return formData.neckCircumference > 0 && formData.waistCircumference > 0 &&
           (formData.gender === 'male' || formData.hipCircumference > 0);
       case 'goals':
-        return formData.targetWeight > 0 && formData.targetDate;
+        return !!formData.intent && !!formData.targetDate;
       case 'schedule':
         // fixed schedule doesn't need a date (uses current week)
         return formData.scheduleType === 'fixed' ? true : !!formData.cycleStart;
@@ -130,8 +134,8 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
         'moderate'
       );
       const current = parseFloat(formData.currentWeight);
-      const target = parseFloat(formData.targetWeight);
-      const goalDirection = target > current ? 'gain' : target < current ? 'loss' : 'maintain';
+      const target = formData.targetWeight ? parseFloat(formData.targetWeight) : null;
+      const goalDirection = target != null && target > current ? 'gain' : target != null && target < current ? 'loss' : 'maintain';
       const proteinGoal = goalDirection === 'gain' ? 'muscle' : goalDirection === 'loss' ? 'weightLoss' : 'maintenance';
       const calorieTarget = calculateCalorieTargets(tdee, 0.75, goalDirection);
       const proteinTarget = calculateProteinTargets(current, proteinGoal);
@@ -153,6 +157,16 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
   const handleComplete = () => {
     const weight = parseFloat(formData.currentWeight);
     const schedulePattern = getSchedulePattern();
+    const targetWeightNum = formData.targetWeight ? parseFloat(formData.targetWeight) : null;
+    const goal = {
+      intent: formData.intent,
+      primaryMetric: DEFAULT_METRIC_FOR_INTENT[formData.intent] || 'weight',
+      targets: {
+        weight: { value: targetWeightNum, date: formData.targetDate || null },
+        bodyfat: { value: null, date: null },
+        waist: { value: null, date: null },
+      },
+    };
     updateProfile({
       name: formData.name.trim(),
       gender: formData.gender,
@@ -163,7 +177,7 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
       neckCircumference: parseFloat(formData.neckCircumference),
       waistCircumference: parseFloat(formData.waistCircumference),
       hipCircumference: formData.gender === 'female' ? parseFloat(formData.hipCircumference) : null,
-      targetWeight: parseFloat(formData.targetWeight),
+      targetWeight: targetWeightNum,
       targetDate: formData.targetDate,
       physicalNotes: formData.physicalNotes,
       bodyFatPercentage: calculations?.bodyFat,
@@ -171,8 +185,18 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
       calorieTarget: calculations?.calorieTarget,
       proteinTarget: calculations?.proteinTarget,
       schedulePattern,
+      goal,
       onboardingComplete: true,
     });
+
+    if (formData.neckCircumference || formData.waistCircumference || formData.hipCircumference) {
+      logMeasurement({
+        waist: formData.waistCircumference ? parseFloat(formData.waistCircumference) : null,
+        neck: formData.neckCircumference ? parseFloat(formData.neckCircumference) : null,
+        hip: formData.hipCircumference ? parseFloat(formData.hipCircumference) : null,
+        bodyFatManual: null,
+      });
+    }
 
     // Build a rich post-onboarding prompt so Coach can immediately set up the schedule
     const today = new Date();
@@ -188,12 +212,17 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
       ? `I work a rotating shift: ${schedulePattern.description}. Cycle starts ${cycleStart}.`
       : `I have a fixed weekly schedule starting ${cycleStart}.`;
 
-    const goalDir = parseFloat(formData.targetWeight) > parseFloat(formData.currentWeight) ? 'gain weight' : parseFloat(formData.targetWeight) < parseFloat(formData.currentWeight) ? 'lose weight' : 'maintain weight';
+    const goalDir = targetWeightNum != null
+      ? (targetWeightNum > parseFloat(formData.currentWeight) ? 'gain weight' : targetWeightNum < parseFloat(formData.currentWeight) ? 'lose weight' : 'maintain weight')
+      : formData.intent;
+    const weightLine = targetWeightNum != null
+      ? `${formData.currentWeight}kg → ${targetWeightNum}kg by ${formData.targetDate}`
+      : `${formData.currentWeight}kg, intent: ${formData.intent}, by ${formData.targetDate}`;
 
     const prompt = `I just finished setting up my profile. Let's build my schedule and workout plan together.
 
 My setup:
-- Goal: ${goalDir} — ${formData.currentWeight}kg → ${formData.targetWeight}kg by ${formData.targetDate}
+- Goal: ${goalDir} — ${weightLine}
 - Calorie target: ${calculations?.calorieTarget?.min}–${calculations?.calorieTarget?.max} kcal/day
 - Protein target: ${calculations?.proteinTarget?.min}–${calculations?.proteinTarget?.max}g/day
 - ${cycleInfo}
@@ -339,12 +368,25 @@ Please do two things:
           <div className="space-y-4">
             <h2 className="text-xl font-bold">Your goals</h2>
             <p className="text-text-muted text-sm">What are you working towards?</p>
-            <div>
-              <label className="text-sm text-text-muted block mb-1">Target weight (kg)</label>
-              <input type="number" step="0.1" value={formData.targetWeight} onChange={(e) => update('targetWeight', e.target.value)}
-                placeholder="e.g. 75" autoFocus
-                className="w-full bg-surface border border-border rounded-lg px-4 py-3 focus:outline-none focus:border-accent" />
+            <div className="space-y-2">
+              {INTENTS.map((intent) => (
+                <button
+                  key={intent}
+                  type="button"
+                  onClick={() => update('intent', intent)}
+                  className={`w-full text-left p-3 rounded-lg border ${formData.intent === intent ? 'border-accent bg-accent/10' : 'border-border bg-bg'}`}
+                >
+                  <div className="text-sm font-medium">{INTENT_LABELS[intent]}</div>
+                  <div className="text-xs text-text-muted mt-0.5">{INTENT_DESCRIPTIONS[intent]}</div>
+                </button>
+              ))}
             </div>
+            <label className="block mt-3 text-sm text-text-muted">
+              Target weight (kg, optional)
+              <input type="number" step="0.1" value={formData.targetWeight}
+                onChange={(e) => update('targetWeight', e.target.value)}
+                className="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
+            </label>
             <div>
               <label className="text-sm text-text-muted block mb-1">Target date</label>
               <input type="date" value={formData.targetDate} onChange={(e) => update('targetDate', e.target.value)}
@@ -494,7 +536,7 @@ Please do two things:
               <div className="border-t border-border pt-3">
                 <div className="text-sm font-medium mb-2">Goal</div>
                 <p className="text-sm text-text-muted">
-                  {formData.currentWeight} kg → {formData.targetWeight} kg by {format(new Date(formData.targetDate), 'MMM d, yyyy')}
+                  {INTENT_LABELS[formData.intent]}{formData.targetWeight ? ` — ${formData.currentWeight} kg → ${formData.targetWeight} kg` : ` — ${formData.currentWeight} kg`} by {format(new Date(formData.targetDate), 'MMM d, yyyy')}
                 </p>
               </div>
               {formData.physicalNotes && (
