@@ -105,7 +105,8 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
         return formData.neckCircumference > 0 && formData.waistCircumference > 0 &&
           (formData.gender === 'male' || formData.hipCircumference > 0);
       case 'goals':
-        return !!formData.intent && !!formData.targetDate;
+        // Intent always has a default; target weight and date are both optional.
+        return !!formData.intent;
       case 'schedule':
         // fixed schedule doesn't need a date (uses current week)
         return formData.scheduleType === 'fixed' ? true : !!formData.cycleStart;
@@ -536,7 +537,7 @@ Please do two things:
               <div className="border-t border-border pt-3">
                 <div className="text-sm font-medium mb-2">Goal</div>
                 <p className="text-sm text-text-muted">
-                  {INTENT_LABELS[formData.intent]}{formData.targetWeight ? ` — ${formData.currentWeight} kg → ${formData.targetWeight} kg` : ` — ${formData.currentWeight} kg`} by {format(new Date(formData.targetDate), 'MMM d, yyyy')}
+                  {INTENT_LABELS[formData.intent]}{formData.targetWeight ? ` — ${formData.currentWeight} kg → ${formData.targetWeight} kg` : ` — ${formData.currentWeight} kg`}{formData.targetDate ? ` by ${format(new Date(formData.targetDate), 'MMM d, yyyy')}` : ''}
                 </p>
               </div>
               {formData.physicalNotes && (
