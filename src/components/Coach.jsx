@@ -355,7 +355,8 @@ export default function Coach({ onClose }) {
     // Only auto-calculate calorie targets if user didn't provide them AND no targets exist yet
     // If user wants to change targets, they should tell Coach the new values directly
     if (!userProvidedFields.calorieTarget && !p.calorieTarget?.min && tdeeToUse) {
-      const goalDir = p.targetWeight > p.currentWeight ? 'gain' : p.targetWeight < p.currentWeight ? 'loss' : 'maintain';
+      const intent = p.goal?.intent || 'maintain';
+      const goalDir = intent === 'bulk' ? 'gain' : intent === 'maintain' ? 'maintain' : 'loss';
       const calorieTarget = calculateCalorieTargets(tdeeToUse, 0.75, goalDir);
       if (calorieTarget.min) {
         calculations.calorieTarget = calorieTarget;
@@ -364,8 +365,9 @@ export default function Coach({ onClose }) {
 
     // Only auto-calculate protein targets if user didn't provide them AND no targets exist yet
     if (!userProvidedFields.proteinTarget && !p.proteinTarget?.min && p.currentWeight) {
-      const goalDir = p.targetWeight > p.currentWeight ? 'gain' : p.targetWeight < p.currentWeight ? 'loss' : 'maintain';
-      const proteinGoal = goalDir === 'gain' ? 'muscle' : goalDir === 'loss' ? 'weightLoss' : 'maintenance';
+      const intent = p.goal?.intent || 'maintain';
+      const goalDir = intent === 'bulk' ? 'gain' : intent === 'maintain' ? 'maintain' : 'loss';
+      const proteinGoal = (intent === 'bulk' || intent === 'recomp') ? 'muscle' : goalDir === 'loss' ? 'weightLoss' : 'maintenance';
       const proteinTarget = calculateProteinTargets(p.currentWeight, proteinGoal);
       if (proteinTarget.min) {
         calculations.proteinTarget = proteinTarget;
