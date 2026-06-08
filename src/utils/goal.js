@@ -25,8 +25,11 @@ export const DEFAULT_METRIC_FOR_INTENT = {
   maintain: 'weight',
 };
 
+// Auto-detects cut/bulk/maintain from weights only. 'recomp' is never inferred —
+// it requires a deliberate user choice. Weights must be positive numbers; anything
+// else (null/undefined/0/negative/NaN) means we can't infer, so default to maintain.
 export function inferIntent(currentWeight, targetWeight) {
-  if (!targetWeight || !currentWeight) return 'maintain';
+  if (!(currentWeight > 0) || !(targetWeight > 0)) return 'maintain';
   if (targetWeight < currentWeight) return 'cut';
   if (targetWeight > currentWeight) return 'bulk';
   return 'maintain';
@@ -51,7 +54,6 @@ export function migrateGoal(profile) {
 
   if (profile?.targetWeight) {
     intent = inferIntent(profile.currentWeight, profile.targetWeight);
-    primaryMetric = 'weight';
     targets.weight = { value: profile.targetWeight, date: profile.targetDate || null };
   }
 

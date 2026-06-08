@@ -11,6 +11,12 @@ describe('inferIntent', () => {
   it('returns maintain when equal or missing', () => {
     expect(inferIntent(90, 90)).toBe('maintain');
     expect(inferIntent(90, null)).toBe('maintain');
+    expect(inferIntent(null, 90)).toBe('maintain');
+    expect(inferIntent(undefined, undefined)).toBe('maintain');
+  });
+  it('returns maintain for non-finite values (0/NaN)', () => {
+    expect(inferIntent(0, 90)).toBe('maintain');
+    expect(inferIntent(NaN, 90)).toBe('maintain');
   });
 });
 
@@ -50,5 +56,15 @@ describe('getGoalProgress', () => {
   });
   it('returns null percent when target missing', () => {
     expect(getGoalProgress({ start: 100, current: 95, target: null }).percent).toBeNull();
+  });
+  it('returns null percent when current missing', () => {
+    expect(getGoalProgress({ start: 100, current: null, target: 90 }).percent).toBeNull();
+  });
+  it('falls back to current as baseline when start is absent', () => {
+    // no start: base = current = 95, total = 95-90 = 5, done = 0 => 0%
+    expect(getGoalProgress({ current: 95, target: 90 }).percent).toBe(0);
+  });
+  it('exposes remaining distance to target', () => {
+    expect(getGoalProgress({ start: 80, current: 85, target: 90 }).remaining).toBe(-5);
   });
 });
