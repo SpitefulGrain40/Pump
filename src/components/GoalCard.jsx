@@ -27,6 +27,10 @@ export default function GoalCard({ profile, data }) {
 
   const last = series.slice(-14);
   const delta = last.length >= 2 ? last[last.length - 1].value - last[0].value : null;
+  // Is the trend moving the way this goal wants? (bulk wants weight up; cut/recomp
+  // and bodyfat/waist want down.) Drives the delta colour so "good" is always green.
+  const goodDir = metric.goodDirection ? metric.goodDirection(goal.intent) : 'down';
+  const deltaIsGood = delta == null ? null : (goodDir === 'up' ? delta >= 0 : delta <= 0);
 
   const progress = useMemo(() => {
     if (!metric.supportsTarget || targetValue == null) return { percent: null };
@@ -73,7 +77,7 @@ export default function GoalCard({ profile, data }) {
       <div className="flex items-baseline gap-2">
         <span className="text-3xl font-bold text-accent">{fmt(current)}</span>
         {delta != null && (
-          <span className={`text-sm ${delta <= 0 ? 'text-accent' : 'text-warning'}`}>
+          <span className={`text-sm ${deltaIsGood ? 'text-accent' : 'text-warning'}`}>
             {delta > 0 ? '▲' : '▼'} {Math.abs(Math.round(delta * 10) / 10)}{metric.unit === '%' ? '' : metric.unit} / 14d
           </span>
         )}
