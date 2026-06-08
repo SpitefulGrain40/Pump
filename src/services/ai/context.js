@@ -335,6 +335,15 @@ export function buildCoachSystemPrompt(profile, context, performance = null, mem
   const weightToLose = profile.currentWeight && profile.targetWeight ? profile.currentWeight - profile.targetWeight : null;
   const weekType = context.weekType || 'A';
 
+  const goal = profile.goal || { intent: 'maintain', primaryMetric: 'weight', targets: {} };
+  const intentRules = {
+    cut: 'GOAL = CUT. Prioritise a calorie deficit and steady weight loss. Keep protein high to preserve muscle. Frame advice around the deficit.',
+    recomp: 'GOAL = RECOMP. Prioritise hitting the protein target with a moderate (small) deficit. Deprioritise the scale — focus on body composition (body fat %, waist) and strength retention.',
+    bulk: 'GOAL = BULK. Prioritise a calorie surplus with high protein to maximise muscle gain. Expect the scale to rise; that is intended.',
+    maintain: 'GOAL = MAINTAIN. Focus on hitting calorie and protein targets consistently with no deficit or surplus. Keep weight and composition stable.',
+  };
+  const primaryTarget = goal.targets?.[goal.primaryMetric];
+
   // Format memories section
   const memoriesSection = formatMemories(memories);
 
@@ -416,6 +425,11 @@ ${(() => {
 - Target Calories: ${profile.calorieTarget?.min && profile.calorieTarget?.max ? `${profile.calorieTarget.min}-${profile.calorieTarget.max} kcal/day` : 'Not set'}
 - Protein Target: ${profile.proteinTarget?.min && profile.proteinTarget?.max ? `${profile.proteinTarget.min}-${profile.proteinTarget.max}g/day` : 'Not set'}
 - Physical Limitations: ${profile.physicalNotes || 'None noted'}
+
+## GOAL
+- Training intent: ${goal.intent}
+- Primary metric: ${goal.primaryMetric}${primaryTarget?.value != null ? ` (target ${primaryTarget.value}${primaryTarget.date ? ` by ${primaryTarget.date}` : ''})` : ''}
+- ${intentRules[goal.intent] || intentRules.maintain}
 
 ## TODAY'S CONTEXT
 - Date: ${format(new Date(), 'EEEE, MMMM d, yyyy')}
