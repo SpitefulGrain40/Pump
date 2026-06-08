@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Flame, Beef, Dumbbell, Plus, Scale, UserCircle, ChevronRight, ChevronDown, Trash2, Download, X, TrendingDown, Trophy, Calendar } from 'lucide-react';
+import { Flame, Beef, Dumbbell, Plus, Scale, Ruler, UserCircle, ChevronRight, ChevronDown, Trash2, Download, X, TrendingDown, Trophy, Calendar } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement,
@@ -14,6 +14,7 @@ import { useBackup } from '../hooks/useSettings';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { format, subDays, parseISO } from 'date-fns';
 import WeightModal from './WeightModal';
+import MeasurementModal from './MeasurementModal';
 import MealLogger from './MealLogger';
 import WorkoutLogger from './WorkoutLogger';
 import GoalCard from './GoalCard';
@@ -43,6 +44,7 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
   const [completedDays] = useLocalStorage('pump-completed-workouts', {});
 
   const [showWeightModal, setShowWeightModal] = useState(false);
+  const [showMeasurementModal, setShowMeasurementModal] = useState(false);
   const [showMealLogger, setShowMealLogger] = useState(false);
   const [showWorkoutLogger, setShowWorkoutLogger] = useState(false);
   const [backupDismissed, setBackupDismissed] = useState(false);
@@ -429,6 +431,16 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
           </div>
           <span className="text-sm font-medium">Weigh In</span>
         </button>
+
+        <button
+          onClick={() => setShowMeasurementModal(true)}
+          className="bg-surface rounded-xl p-4 flex items-center gap-3"
+        >
+          <div className="w-10 h-10 bg-info/20 rounded-full flex items-center justify-center shrink-0">
+            <Ruler size={20} className="text-info" />
+          </div>
+          <span className="text-sm font-medium">Measurements</span>
+        </button>
       </div>
 
       {/* Collapsible Progress */}
@@ -522,6 +534,7 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
 
       {/* Modals */}
       {showWeightModal && <WeightModal onClose={() => setShowWeightModal(false)} />}
+      {showMeasurementModal && <MeasurementModal onClose={() => setShowMeasurementModal(false)} />}
       {showMealLogger && <MealLogger onClose={() => setShowMealLogger(false)} />}
       {showWorkoutLogger && (
         <WorkoutLogger
