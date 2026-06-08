@@ -64,6 +64,8 @@ export default function Progress({ onNavigate }) {
   const progress = getProgress();
   const weightLost = getWeightLost();
 
+  const weightTarget = profile.goal?.targets?.weight?.value ?? profile.targetWeight ?? null;
+
   const weightChartData = useMemo(() => {
     const sorted = [...weightEntries].sort((a, b) => new Date(a.date) - new Date(b.date));
     const last14 = sorted.slice(-14);
@@ -81,16 +83,12 @@ export default function Progress({ onNavigate }) {
           pointRadius: 4,
           pointBackgroundColor: '#22c55e',
         },
-        {
-          label: 'Target',
-          data: last14.map(() => profile.targetWeight),
-          borderColor: '#3b82f6',
-          borderDash: [5, 5],
-          pointRadius: 0,
-        },
+        ...(weightTarget != null
+          ? [{ label: 'Target', data: last14.map(() => weightTarget), borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0 }]
+          : []),
       ],
     };
-  }, [weightEntries, profile.targetWeight]);
+  }, [weightEntries, weightTarget]);
 
   const calorieChartData = useMemo(() => {
     const days = [];

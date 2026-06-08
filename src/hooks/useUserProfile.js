@@ -46,8 +46,11 @@ export function useUserProfile() {
     return differenceInDays(parseISO(profile.targetDate), new Date());
   };
 
+  const getWeightTarget = () => profile.goal?.targets?.weight?.value ?? profile.targetWeight ?? null;
+
   const getWeightToLose = () => {
-    return profile.currentWeight - profile.targetWeight;
+    const t = getWeightTarget();
+    return t != null ? profile.currentWeight - t : 0;
   };
 
   const getWeightLost = () => {
@@ -61,9 +64,11 @@ export function useUserProfile() {
   };
 
   const getProgress = () => {
-    const total = profile.startingWeight - profile.targetWeight;
-    const lost = getWeightLost();
-    return total > 0 ? (lost / total) * 100 : 0;
+    const t = getWeightTarget();
+    if (t == null || !profile.startingWeight) return 0;
+    const total = profile.startingWeight - t;
+    const lost = profile.startingWeight - profile.currentWeight;
+    return total !== 0 ? Math.min(Math.max((lost / total) * 100, 0), 100) : 0;
   };
 
   const getCalorieTarget = () => {
@@ -108,6 +113,7 @@ export function useUserProfile() {
     updateProfile,
     reset,
     getDaysToGoal,
+    getWeightTarget,
     getWeightToLose,
     getWeightLost,
     getRequiredWeeklyRate,
