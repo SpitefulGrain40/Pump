@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Target, Flame, Beef, Dumbbell, Plus, Scale, UserCircle, ChevronRight, ChevronDown, Trash2, Download, X, TrendingDown, Trophy, Calendar } from 'lucide-react';
+import { Flame, Beef, Dumbbell, Plus, Scale, UserCircle, ChevronRight, ChevronDown, Trash2, Download, X, TrendingDown, Trophy, Calendar } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement,
@@ -16,6 +16,9 @@ import { format, subDays, parseISO } from 'date-fns';
 import WeightModal from './WeightModal';
 import MealLogger from './MealLogger';
 import WorkoutLogger from './WorkoutLogger';
+import GoalCard from './GoalCard';
+import SecondaryMetricStrip from './SecondaryMetricStrip';
+import { useMeasurementHistory } from '../hooks/useMeasurementHistory';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
@@ -30,11 +33,12 @@ const chartOptions = {
 };
 
 export default function Dashboard({ onNavigate, onOpenCoach }) {
-  const { profile, getDaysToGoal, getProgress, getCalorieTarget, getProteinTarget, getWeightLost } = useUserProfile();
+  const { profile, getProgress, getCalorieTarget, getProteinTarget, getWeightLost } = useUserProfile();
   const { getTodaysTotals, getTodaysMeals, removeMeal, getDailyTotals } = useNutritionLogs();
   const { schedule, getWorkoutForDate, getWorkoutTemplate } = useWorkoutSchedule();
   const { getTodaysWorkout, getAllPRs } = useWorkoutLogs();
   const { getLatestWeight, entries: weightEntries } = useWeightHistory();
+  const { entries: measurementHistory } = useMeasurementHistory();
   const { exportData, needsBackupReminder } = useBackup();
   const [completedDays] = useLocalStorage('pump-completed-workouts', {});
 
@@ -74,7 +78,6 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
 
   const todaysTotals = getTodaysTotals();
   const todaysMeals = getTodaysMeals();
-  const daysToGoal = getDaysToGoal() || 0;
   const progress = getProgress() || 0;
   const weightLost = getWeightLost ? getWeightLost() : 0;
 
@@ -97,6 +100,7 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
 
   // Progress chart data
   const prs = getAllPRs ? getAllPRs() : {};
+  const metricData = { weightHistory: weightEntries, measurementHistory, prs };
   const prList = Object.entries(prs).map(([name, data]) => ({ name, ...data })).sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const weightChartData = useMemo(() => {
@@ -227,30 +231,9 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
         </div>
       )}
 
-      {/* Goal Countdown */}
-      {profile.targetWeight && profile.targetDate && (
-        <div className="bg-surface rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Target size={20} className="text-accent" />
-              <span className="font-medium">Goal: {profile.targetWeight} kg</span>
-            </div>
-            <span className="text-2xl font-bold text-accent">{daysToGoal > 0 ? daysToGoal : 0}</span>
-          </div>
-          <p className="text-text-muted text-sm mb-3">days remaining</p>
-          <div className="w-full bg-border rounded-full h-2">
-            <div
-              className="bg-accent h-2 rounded-full transition-all"
-              style={{ width: `${Math.min(Math.max(progress, 0), 100)}%` }}
-            />
-          </div>
-          <div className="flex justify-between text-xs text-text-muted mt-2">
-            <span>{profile.startingWeight || profile.currentWeight} kg</span>
-            <span>{currentWeight} kg</span>
-            <span>{profile.targetWeight} kg</span>
-          </div>
-        </div>
-      )}
+      {/* Goal-driven dashboard */}
+      <GoalCard profile={profile} data={metricData} />
+      <SecondaryMetricStrip profile={profile} data={metricData} />
 
       {/* Body Stats Summary — Navy is the displayed default; manual shown as small secondary */}
       {(() => {
