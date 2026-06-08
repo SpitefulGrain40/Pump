@@ -6,7 +6,7 @@ import {
 import { useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { format, addDays, startOfWeek, isToday, parseISO, isBefore, getDay, differenceInDays } from 'date-fns';
+import { format, addDays, startOfWeek, isToday, parseISO, getDay, differenceInDays } from 'date-fns';
 import WorkoutLogger from './WorkoutLogger';
 
 const ACTIVITY_CONFIG = {
