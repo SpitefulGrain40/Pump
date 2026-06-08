@@ -163,10 +163,13 @@ export function buildPerformanceContext(completedDays, weightHistory, nutritionL
     ? profile.startingWeight - profile.currentWeight
     : 0;
 
-  // Calculate required vs current rate
-  const daysToGoal = profile.targetDate ? differenceInDays(parseISO(profile.targetDate), today) : null;
-  const weightToLose = profile.currentWeight && profile.targetWeight
-    ? profile.currentWeight - profile.targetWeight
+  // Calculate required vs current rate. Prefer the goal model's weight target,
+  // falling back to the legacy targetWeight/targetDate for un-migrated profiles.
+  const goalWeightTarget = profile.goal?.targets?.weight?.value ?? profile.targetWeight ?? null;
+  const goalWeightDate = profile.goal?.targets?.weight?.date ?? profile.targetDate ?? null;
+  const daysToGoal = goalWeightDate ? differenceInDays(parseISO(goalWeightDate), today) : null;
+  const weightToLose = profile.currentWeight && goalWeightTarget
+    ? profile.currentWeight - goalWeightTarget
     : 0;
   const requiredRate = daysToGoal && weightToLose ? (weightToLose / daysToGoal) * 7 : 0;
   const currentRate = recentWeights.length >= 2 ? Math.abs(weightChange2Weeks) / 2 : 0;

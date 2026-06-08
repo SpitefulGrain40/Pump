@@ -43,7 +43,9 @@ export function useUserProfile() {
   };
 
   const getDaysToGoal = () => {
-    return differenceInDays(parseISO(profile.targetDate), new Date());
+    const date = profile.goal?.targets?.weight?.date ?? profile.targetDate ?? null;
+    if (!date) return null;
+    return differenceInDays(parseISO(date), new Date());
   };
 
   const getWeightTarget = () => profile.goal?.targets?.weight?.value ?? profile.targetWeight ?? null;

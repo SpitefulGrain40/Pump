@@ -105,6 +105,7 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
   const metricData = { weightHistory: weightEntries, measurementHistory, prs };
   const prList = Object.entries(prs).map(([name, data]) => ({ name, ...data })).sort((a, b) => new Date(b.date) - new Date(a.date));
 
+  const weightTarget = profile.goal?.targets?.weight?.value ?? profile.targetWeight ?? null;
   const weightChartData = useMemo(() => {
     const sorted = [...weightEntries].sort((a, b) => new Date(a.date) - new Date(b.date));
     const last14 = sorted.slice(-14);
@@ -112,10 +113,12 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
       labels: last14.map(e => format(parseISO(e.date), 'MMM d')),
       datasets: [
         { label: 'Weight', data: last14.map(e => e.weight), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#22c55e' },
-        { label: 'Target', data: last14.map(() => profile.targetWeight), borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0 },
+        ...(weightTarget != null
+          ? [{ label: 'Target', data: last14.map(() => weightTarget), borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0 }]
+          : []),
       ],
     };
-  }, [weightEntries, profile.targetWeight]);
+  }, [weightEntries, weightTarget]);
 
   const calorieChartData = useMemo(() => {
     const days = [];
