@@ -5,7 +5,19 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // Ignore build output and deploy worktrees — linting the minified production
+  // bundle in docs/ produced thousands of meaningless errors.
+  globalIgnores([
+    'dist/**',
+    'docs/**',
+    // Stray build output committed to the repo root by an old deploy — minified
+    // bundles, not source. (These dirs ideally get removed from git entirely.)
+    'assets/**',
+    'test/**',
+    '.deploy-master-worktree/**',
+    '.gh-pages-test-worktree/**',
+    '.superpowers/**',
+  ]),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
