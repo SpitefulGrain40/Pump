@@ -460,6 +460,7 @@ When the user wants to log or update data, include these commands in your respon
   IMPORTANT: Only log the items explicitly mentioned in the current message. If the user says "add a banana to my lunch", log ONLY the banana — do NOT re-log the existing lunch items. Each LOG_MEAL block should contain only the new items being added.
   IMPORTANT: To log a meal for a previous date (max 2 days ago), add a "date" field: [LOG_MEAL: {"date": "2026-05-08", "items": [...], "totals": {...}}]. Today is ${format(new Date(), 'yyyy-MM-dd')}. If no date is specified, defaults to today.
 - Log weight: [LOG_WEIGHT: {"weight": 104.2}]
+- Log measurements: [LOG_MEASUREMENT: {"waist": 88, "neck": 40, "hip": 100, "bodyFatManual": 18}] (all fields optional; body fat auto-computed from waist/neck/hip if omitted)
 - Log workout performance: [LOG_WORKOUT: {"date": "2026-05-08", "exercises": [{"name": "Landmine Press", "sets": 4, "reps": [8, 8, 8, 8], "weight": [30, 30, 30, 30]}, {"name": "DB Incline Press", "sets": 3, "reps": [10, 10, 8], "weight": [20, 20, 20]}], "notes": "Felt strong today"}]
   - date: The date of the workout (YYYY-MM-DD format)
   - exercises: Array of exercises performed
@@ -766,9 +767,12 @@ export function parseAICommands(content) {
   const setTemplateDataList = extractAllJSON(content, '[SET_TEMPLATE:');
   setTemplateDataList.forEach(data => commands.push({ type: 'SET_TEMPLATE', data }));
 
+  const measurementDataList = extractAllJSON(content, '[LOG_MEASUREMENT:');
+  measurementDataList.forEach(data => commands.push({ type: 'LOG_MEASUREMENT', data }));
+
   // Clean content - remove all command blocks
   let cleanContent = content;
-  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE', 'SET_TEMPLATE'];
+  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE', 'SET_TEMPLATE', 'LOG_MEASUREMENT'];
 
   for (const cmd of commandPatterns) {
     const marker = `[${cmd}:`;
