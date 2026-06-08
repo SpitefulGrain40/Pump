@@ -27,8 +27,13 @@ const waist = {
   unit: 'cm',
   supportsTarget: true,
   getCurrent(profile, { measurementHistory = [] } = {}) {
-    const latest = [...measurementHistory].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-    return latest?.waist ?? profile?.waistCircumference ?? null;
+    // Most recent snapshot that actually has a waist value (consistent with
+    // getSeries, which filters out null-waist entries). Falls back to the
+    // profile's current waist only when no snapshot has one.
+    const withWaist = [...measurementHistory]
+      .filter(e => e.waist != null)
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+    return withWaist[0]?.waist ?? profile?.waistCircumference ?? null;
   },
   getSeries(_profile, { measurementHistory = [] } = {}) {
     return [...measurementHistory]
@@ -41,20 +46,24 @@ const waist = {
   },
 };
 
+// Body fat for one snapshot: prefer a manual entry, else compute via Navy.
+// Module-level (not a `this`-bound method) so descriptor methods stay safe to
+// destructure or pass around.
+const bodyfatValueFor = (profile, snap) => {
+  if (snap.bodyFatManual != null) return snap.bodyFatManual;
+  return calculateBodyFatNavy(profile.gender, profile.height, snap.waist, snap.neck, snap.hip);
+};
+
 // --- bodyfat (Navy per snapshot, manual overrides when present) ---
 const bodyfat = {
   key: 'bodyfat',
   label: 'Body Fat',
   unit: '%',
   supportsTarget: true,
-  _valueFor(profile, snap) {
-    if (snap.bodyFatManual != null) return snap.bodyFatManual;
-    return calculateBodyFatNavy(profile.gender, profile.height, snap.waist, snap.neck, snap.hip);
-  },
   getCurrent(profile, { measurementHistory = [] } = {}) {
     const sorted = [...measurementHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
     for (const snap of sorted) {
-      const v = this._valueFor(profile, snap);
+      const v = bodyfatValueFor(profile, snap);
       if (v != null) return v;
     }
     return null;
@@ -62,7 +71,7 @@ const bodyfat = {
   getSeries(profile, { measurementHistory = [] } = {}) {
     return [...measurementHistory]
       .sort(byDateAsc)
-      .map(snap => ({ date: snap.date, value: this._valueFor(profile, snap) }))
+      .map(snap => ({ date: snap.date, value: bodyfatValueFor(profile, snap) }))
       .filter(p => p.value != null);
   },
   goodDirection() {
@@ -86,11 +95,18 @@ const strength = {
     if (tops.length === 0) return null;
     return tops.reduce((a, b) => a + b, 0);
   },
-  // Series = the heaviest single PR by date (proxy for "are lifts going up").
+  // Series = heaviest PR per day (one point per date) so the trend reads as a
+  // single upward line rather than a scatter of every lift's PR.
   getSeries(_profile, { prs = {} } = {}) {
-    return Object.values(prs)
-      .filter(p => p?.date && Number.isFinite(Number(p.weight)))
-      .map(p => ({ date: String(p.date).split('T')[0], value: Number(p.weight) }))
+    const maxByDate = new Map();
+    for (const p of Object.values(prs)) {
+      const w = Number(p?.weight);
+      if (!p?.date || !Number.isFinite(w)) continue;
+      const date = String(p.date).split('T')[0];
+      if (!maxByDate.has(date) || w > maxByDate.get(date)) maxByDate.set(date, w);
+    }
+    return [...maxByDate.entries()]
+      .map(([date, value]) => ({ date, value }))
       .sort(byDateAsc);
   },
   goodDirection() {
