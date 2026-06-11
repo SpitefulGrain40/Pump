@@ -166,6 +166,7 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
       primaryMetric: DEFAULT_METRIC_FOR_INTENT[formData.intent] || 'weight',
       targets: {
         weight: { value: targetWeightNum, date: formData.targetDate || null },
+        leanmass: { value: null, date: null },
         bodyfat: { value: null, date: null },
         waist: { value: null, date: null },
       },

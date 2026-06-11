@@ -14,7 +14,7 @@ export default function Settings() {
   const { profile, updateProfile } = useUserProfile();
   const { exportData, importData, clearAllData } = useBackup();
 
-  const goal = profile.goal || { intent: 'maintain', primaryMetric: 'weight', targets: { weight: {}, bodyfat: {}, waist: {} } };
+  const goal = profile.goal || { intent: 'maintain', primaryMetric: 'weight', targets: { weight: {}, leanmass: {}, bodyfat: {}, waist: {} } };
   const setIntent = (intent) => updateProfile({ goal: { ...goal, intent, primaryMetric: DEFAULT_METRIC_FOR_INTENT[intent] || goal.primaryMetric } });
   const setPrimaryMetric = (primaryMetric) => updateProfile({ goal: { ...goal, primaryMetric } });
   const setTarget = (field, value) => updateProfile({
@@ -187,7 +187,7 @@ export default function Settings() {
           </div>
 
           <div className="text-xs text-text-muted font-medium uppercase tracking-wide pt-2">Primary metric</div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {PRIMARY_METRICS.map((key) => (
               <button
                 key={key}

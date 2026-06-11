@@ -23,7 +23,7 @@ export default function SecondaryMetricStrip({ profile, data }) {
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {secondaryKeys.map(key => {
           const metric = getMetric(key);
           const current = metric.getCurrent(profile, data);

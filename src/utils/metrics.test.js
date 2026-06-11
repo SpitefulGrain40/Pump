@@ -75,6 +75,21 @@ describe('strength descriptor', () => {
   });
 });
 
+describe('leanmass descriptor', () => {
+  it('current = weight * (1 - bodyfat/100), using a manual bf snapshot', () => {
+    const weightHistory = [{ date: '2026-02-01', weight: 100 }];
+    const measurementHistory = [{ date: '2026-02-01', waist: 88, neck: 40, hip: null, bodyFatManual: 20 }];
+    expect(getMetric('leanmass').getCurrent(profile, { weightHistory, measurementHistory })).toBe(80);
+  });
+  it('returns null when no body fat is available', () => {
+    const weightHistory = [{ date: '2026-02-01', weight: 100 }];
+    expect(getMetric('leanmass').getCurrent({ gender: 'male' }, { weightHistory, measurementHistory: [] })).toBeNull();
+  });
+  it('supportsTarget is true', () => {
+    expect(getMetric('leanmass').supportsTarget).toBe(true);
+  });
+});
+
 describe('registry', () => {
   it('weight/bodyfat/waist support targets, strength does not', () => {
     expect(getMetric('weight').supportsTarget).toBe(true);
@@ -82,7 +97,7 @@ describe('registry', () => {
     expect(getMetric('waist').supportsTarget).toBe(true);
     expect(getMetric('strength').supportsTarget).toBe(false);
   });
-  it('exposes all four metrics', () => {
-    expect(Object.keys(METRICS).sort()).toEqual(['bodyfat', 'strength', 'waist', 'weight']);
+  it('exposes all five metrics', () => {
+    expect(Object.keys(METRICS).sort()).toEqual(['bodyfat', 'leanmass', 'strength', 'waist', 'weight']);
   });
 });

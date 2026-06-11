@@ -1,7 +1,7 @@
 // Pure helpers for the two-axis goal model. No React, no localStorage — fully testable.
 
 export const INTENTS = ['cut', 'recomp', 'bulk', 'maintain'];
-export const PRIMARY_METRICS = ['weight', 'bodyfat', 'waist', 'strength'];
+export const PRIMARY_METRICS = ['weight', 'leanmass', 'bodyfat', 'waist', 'strength'];
 
 export const INTENT_LABELS = {
   cut: 'Cut',
@@ -20,7 +20,7 @@ export const INTENT_DESCRIPTIONS = {
 // Default primary metric per intent.
 export const DEFAULT_METRIC_FOR_INTENT = {
   cut: 'weight',
-  bulk: 'weight',
+  bulk: 'leanmass',
   recomp: 'bodyfat',
   maintain: 'weight',
 };
@@ -38,6 +38,7 @@ export function inferIntent(currentWeight, targetWeight) {
 function emptyTargets() {
   return {
     weight: { value: null, date: null },
+    leanmass: { value: null, date: null },
     bodyfat: { value: null, date: null },
     waist: { value: null, date: null },
   };

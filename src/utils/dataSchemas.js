@@ -15,6 +15,7 @@ export const DEFAULT_USER_PROFILE = {
     primaryMetric: 'weight',  // 'weight' | 'bodyfat' | 'waist' | 'strength'
     targets: {
       weight: { value: null, date: null },
+      leanmass: { value: null, date: null },
       bodyfat: { value: null, date: null },
       waist: { value: null, date: null },
       // strength is trend-only — no numeric target

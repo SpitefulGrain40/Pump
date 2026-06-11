@@ -1,4 +1,4 @@
-import { calculateBodyFatNavy } from './calculations';
+import { calculateBodyFatNavy, resolveBodyFat } from './calculations';
 
 const byDateAsc = (a, b) => new Date(a.date) - new Date(b.date);
 
@@ -52,6 +52,19 @@ const waist = {
 const bodyfatValueFor = (profile, snap) => {
   if (snap.bodyFatManual != null) return snap.bodyFatManual;
   return calculateBodyFatNavy(profile.gender, profile.height, snap.waist, snap.neck, snap.hip);
+};
+
+// Body fat % for a given date: the most recent snapshot at-or-before `date`
+// that yields a value, else the profile's current resolved body fat.
+const bodyfatForDate = (profile, measurementHistory, date) => {
+  const priorSnaps = [...measurementHistory]
+    .filter(s => new Date(s.date) <= new Date(date))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  for (const snap of priorSnaps) {
+    const v = bodyfatValueFor(profile, snap);
+    if (v != null) return v;
+  }
+  return resolveBodyFat(profile).value;
 };
 
 // --- bodyfat (Navy per snapshot, manual overrides when present) ---
@@ -114,7 +127,34 @@ const strength = {
   },
 };
 
-export const METRICS = { weight, bodyfat, waist, strength };
+// --- lean mass (weight x (1 - bodyfat%)). Needs body fat to be meaningful. ---
+const leanmass = {
+  key: 'leanmass',
+  label: 'Lean Mass',
+  unit: 'kg',
+  supportsTarget: true,
+  getCurrent(profile, { weightHistory = [], measurementHistory = [] } = {}) {
+    const latestW = [...weightHistory].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    const weight = latestW?.weight ?? profile?.currentWeight ?? null;
+    if (weight == null) return null;
+    const bf = bodyfatForDate(profile, measurementHistory, latestW?.date ?? new Date().toISOString());
+    if (bf == null) return null;
+    return Math.round(weight * (1 - bf / 100) * 10) / 10;
+  },
+  getSeries(profile, { weightHistory = [], measurementHistory = [] } = {}) {
+    return [...weightHistory]
+      .sort(byDateAsc)
+      .map(e => {
+        const bf = bodyfatForDate(profile, measurementHistory, e.date);
+        if (bf == null) return null;
+        return { date: e.date, value: Math.round(e.weight * (1 - bf / 100) * 10) / 10 };
+      })
+      .filter(Boolean);
+  },
+  goodDirection() { return 'up'; },
+};
+
+export const METRICS = { weight, leanmass, bodyfat, waist, strength };
 
 export function getMetric(key) {
   return METRICS[key] || METRICS.weight;
