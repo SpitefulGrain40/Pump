@@ -12,6 +12,7 @@ import {
 import { format, addDays, startOfWeek } from 'date-fns';
 import { INTENTS, INTENT_LABELS, INTENT_DESCRIPTIONS, DEFAULT_METRIC_FOR_INTENT } from '../utils/goal';
 import { useMeasurementHistory } from '../hooks/useMeasurementHistory';
+import { useWeightHistory } from '../hooks/useWeightHistory';
 
 const STEPS = [
   { id: 'apikey', title: 'API Key', icon: Key },
@@ -34,6 +35,7 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
   const { profile, updateProfile } = useUserProfile();
   const { aiSettings, updateAISettings } = useSettings();
   const { logMeasurement } = useMeasurementHistory();
+  const { logWeight } = useWeightHistory();
   const [step, setStep] = useState(0);
   const [showApiKey, setShowApiKey] = useState(false);
   const [formData, setFormData] = useState({
@@ -198,6 +200,9 @@ export default function OnboardingWizard({ onComplete, onSkip }) {
         bodyFatManual: null,
       });
     }
+
+    // Seed a starting weight entry so the weight trend has a first data point.
+    if (weight) logWeight(weight);
 
     // Build a rich post-onboarding prompt so Coach can immediately set up the schedule
     const today = new Date();

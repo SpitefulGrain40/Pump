@@ -3,10 +3,15 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 // Custom event for same-tab localStorage updates
 const STORAGE_UPDATE_EVENT = 'local-storage-update';
 
-// Track which keys are currently being updated to prevent loops
-const updatingKeys = new Set();
+// Monotonic id so each hook instance can recognise (and ignore) its OWN writes
+// while still receiving writes from every other instance of the same key.
+let nextInstanceId = 0;
 
 export function useLocalStorage(key, defaultValue) {
+  // Stable per-instance identity. Previously a single shared "updatingKeys" set
+  // was used to avoid write loops, but it also suppressed cross-component
+  // updates (e.g. App not seeing onboardingComplete flip until a reload).
+  const instanceId = useRef(++nextInstanceId);
   const [value, setValue] = useState(() => {
     try {
       const stored = localStorage.getItem(key);
@@ -18,26 +23,22 @@ export function useLocalStorage(key, defaultValue) {
 
   // Save to localStorage when value changes
   useEffect(() => {
-    // Mark this key as updating
-    updatingKeys.add(key);
-
     try {
       localStorage.setItem(key, JSON.stringify(value));
-      // Dispatch custom event for same-tab sync
-      window.dispatchEvent(new CustomEvent(STORAGE_UPDATE_EVENT, { detail: { key } }));
+      // Dispatch custom event for same-tab sync, tagged with our instance id so
+      // we don't react to our own write (other instances still will).
+      window.dispatchEvent(new CustomEvent(STORAGE_UPDATE_EVENT, { detail: { key, sender: instanceId.current } }));
     } catch (e) {
       console.error(`Failed to save ${key} to localStorage:`, e);
     }
-
-    // Clear the updating flag after this event loop cycle
-    queueMicrotask(() => updatingKeys.delete(key));
   }, [key, value]);
 
   // Listen for updates from other components in the same tab
   useEffect(() => {
     const handleStorageUpdate = (e) => {
-      // Skip if we're the one updating this key
-      if (updatingKeys.has(key)) return;
+      // Skip our own writes; process everyone else's. The JSON-equality check
+      // below prevents any update loop between instances.
+      if (e.detail?.sender === instanceId.current) return;
 
       if (e.detail?.key === key) {
         try {
