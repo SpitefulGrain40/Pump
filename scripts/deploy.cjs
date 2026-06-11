@@ -9,7 +9,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const buildDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+// Date + time so multiple deploys on the same day each get a unique service
+// worker cache name (a date-only stamp collided and skipped SW re-activation).
+const now = new Date();
+const buildDate = now.toISOString().slice(0, 10).replace(/-/g, '') + '-' + now.toISOString().slice(11, 19).replace(/:/g, '');
 const root = path.join(__dirname, '..');
 const distDir = path.join(root, 'dist');
 const docsDir = path.join(root, 'docs');

@@ -32,8 +32,10 @@ const distDir = path.join(root, 'dist');
 const worktreeDir = path.join(root, '.deploy-master-worktree');
 const targetSubdir = path.join(worktreeDir, 'docs', 'test');
 
-const buildDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-const buildTime = new Date().toISOString();
+// Date + time so same-day deploys each get a unique SW cache name.
+const _now = new Date();
+const buildDate = _now.toISOString().slice(0, 10).replace(/-/g, '') + '-' + _now.toISOString().slice(11, 19).replace(/:/g, '');
+const buildTime = _now.toISOString();
 
 function run(cmd, opts = {}) {
   console.log(`$ ${cmd}`);

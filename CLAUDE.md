@@ -348,7 +348,7 @@ node scripts/deploy.cjs   # Stamps sw.js with build date, copies dist → docs/
 git add docs/ && git commit -m "..." && git push
 ```
 
-The service worker uses a stamped cache name (`pump-YYYYMMDD`) so Android users automatically get updates. Network-first strategy for `index.html`, cache-first for JS/CSS assets.
+The service worker uses a stamped cache name (`pump-YYYYMMDD-HHMMSS`, date **and** time so multiple same-day deploys each bust the cache) so Android users automatically get updates. Network-first strategy for `index.html`, cache-first for JS/CSS assets.
 
 ### Android Installation
 1. Open https://spitefulgrain40.github.io/Pump/ in Chrome
