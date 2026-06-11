@@ -13,13 +13,17 @@ import {
   Legend,
   Filler,
 } from 'chart.js';
-import { TrendingDown, Trophy, Flame, Calendar, Settings, ChevronDown, ChevronRight } from 'lucide-react';
+import { TrendingDown, Trophy, Flame, Calendar, Settings, ChevronDown, ChevronRight, Target } from 'lucide-react';
 import { useWeightHistory } from '../hooks/useWeightHistory';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useWorkoutLogs, useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { format, subDays, parseISO, isWithinInterval, startOfDay } from 'date-fns';
+import { getMetric } from '../utils/metrics';
+import { getGoalProgress } from '../utils/goal';
+import { useMeasurementHistory } from '../hooks/useMeasurementHistory';
+import SecondaryMetricStrip from './SecondaryMetricStrip';
 
 ChartJS.register(
   CategoryScale,
@@ -53,42 +57,39 @@ const chartOptions = {
 
 export default function Progress({ onNavigate }) {
   const { entries: weightEntries } = useWeightHistory();
-  const { profile, getProgress, getWeightLost } = useUserProfile();
+  const { profile } = useUserProfile();
   const { getAllPRs } = useWorkoutLogs();
   const { schedule } = useWorkoutSchedule();
   const { templates } = useWorkoutTemplates();
   const { getDailyTotals } = useNutritionLogs();
   const [completedDays] = useLocalStorage('pump-completed-workouts', {});
 
+  const { entries: measurementHistory } = useMeasurementHistory();
   const prs = getAllPRs();
-  const progress = getProgress();
-  const weightLost = getWeightLost();
 
-  const weightTarget = profile.goal?.targets?.weight?.value ?? profile.targetWeight ?? null;
-
-  const weightChartData = useMemo(() => {
-    const sorted = [...weightEntries].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const last14 = sorted.slice(-14);
-
-    return {
-      labels: last14.map((e) => format(parseISO(e.date), 'MMM d')),
-      datasets: [
-        {
-          label: 'Weight',
-          data: last14.map((e) => e.weight),
-          borderColor: '#22c55e',
-          backgroundColor: 'rgba(34, 197, 94, 0.1)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 4,
-          pointBackgroundColor: '#22c55e',
-        },
-        ...(weightTarget != null
-          ? [{ label: 'Target', data: last14.map(() => weightTarget), borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0 }]
-          : []),
-      ],
-    };
-  }, [weightEntries, weightTarget]);
+  const metricData = { weightHistory: weightEntries, measurementHistory, prs };
+  const goal = profile.goal || { intent: 'maintain', primaryMetric: 'weight', targets: {} };
+  const primaryMetric = getMetric(goal.primaryMetric);
+  const primarySeries = primaryMetric.getSeries(profile, metricData);
+  const primaryCurrent = primaryMetric.getCurrent(profile, metricData);
+  const primaryTarget = primaryMetric.supportsTarget ? (goal.targets?.[goal.primaryMetric] || {}) : {};
+  const primaryChange = (primaryCurrent != null && primarySeries.length >= 2)
+    ? Math.round((primaryCurrent - primarySeries[0].value) * 10) / 10
+    : null;
+  const primaryProgress = (primaryMetric.supportsTarget && primaryTarget.value != null && primaryCurrent != null)
+    ? getGoalProgress({ start: primarySeries.length ? primarySeries[0].value : primaryCurrent, current: primaryCurrent, target: primaryTarget.value })
+    : { percent: null };
+  const unitSuffix = primaryMetric.unit === '%' ? '' : ' ' + primaryMetric.unit;
+  const last14Primary = primarySeries.slice(-14);
+  const primaryChartData = {
+    labels: last14Primary.map((p) => format(parseISO(p.date), 'MMM d')),
+    datasets: [
+      { label: primaryMetric.label, data: last14Primary.map((p) => p.value), borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#22c55e' },
+      ...(primaryTarget.value != null
+        ? [{ label: 'Target', data: last14Primary.map(() => primaryTarget.value), borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0 }]
+        : []),
+    ],
+  };
 
   const calorieChartData = useMemo(() => {
     const days = [];
@@ -230,11 +231,19 @@ export default function Progress({ onNavigate }) {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-surface rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
-            <TrendingDown size={18} className="text-accent" />
-            <span className="text-sm text-text-muted">Lost</span>
+            <Target size={18} className="text-accent" />
+            <span className="text-sm text-text-muted">{primaryMetric.label}</span>
           </div>
-          <div className="text-2xl font-bold text-accent">{weightLost.toFixed(1)} kg</div>
-          <div className="text-xs text-text-muted">{progress.toFixed(0)}% to goal</div>
+          <div className="text-2xl font-bold text-accent">
+            {primaryCurrent != null ? `${primaryCurrent}${unitSuffix}` : '—'}
+          </div>
+          <div className="text-xs text-text-muted">
+            {primaryProgress.percent != null
+              ? `${primaryProgress.percent}% to goal`
+              : primaryChange != null
+                ? `${primaryChange >= 0 ? '+' : ''}${primaryChange}${primaryMetric.unit === '%' ? '%' : primaryMetric.unit} since start`
+                : 'Tracking'}
+          </div>
         </div>
 
         <div className="bg-surface rounded-xl p-4">
@@ -247,22 +256,27 @@ export default function Progress({ onNavigate }) {
         </div>
       </div>
 
-      {/* Weight Chart */}
+      {/* Primary metric trend */}
       <div className="bg-surface rounded-xl p-4">
         <h3 className="font-medium mb-3 flex items-center gap-2">
           <TrendingDown size={18} className="text-accent" />
-          Weight Trend
+          {primaryMetric.label} Trend
         </h3>
         <div className="h-48">
-          {weightEntries.length > 0 ? (
-            <Line data={weightChartData} options={chartOptions} />
+          {primarySeries.length > 0 ? (
+            <Line data={primaryChartData} options={chartOptions} />
           ) : (
-            <div className="h-full flex items-center justify-center text-text-muted text-sm">
-              Log your weight to see trends
+            <div className="h-full flex items-center justify-center text-text-muted text-sm text-center px-4">
+              {goal.primaryMetric === 'leanmass'
+                ? 'Log weight + body-fat measurements to see lean mass.'
+                : `Log ${primaryMetric.label.toLowerCase()} data to see your trend.`}
             </div>
           )}
         </div>
       </div>
+
+      {/* Other metrics at a glance */}
+      <SecondaryMetricStrip profile={profile} data={metricData} />
 
       {/* Calorie Chart */}
       <div className="bg-surface rounded-xl p-4">
