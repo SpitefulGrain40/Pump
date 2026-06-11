@@ -7,6 +7,7 @@ import { useUserProfile } from '../hooks/useUserProfile';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useWorkoutLogs, useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
 import { useWeightHistory } from '../hooks/useWeightHistory';
+import { useMeasurementHistory } from '../hooks/useMeasurementHistory';
 import {
   sendMessage,
   buildCoachSystemPrompt,
@@ -120,6 +121,7 @@ export default function Coach({ onClose }) {
   const { schedule, setWorkoutForDate, setSchedule } = useWorkoutSchedule();
   const { addExercise, removeExercise, updateExercise, setTemplate } = useWorkoutTemplates();
   const { logWeight, entries: weightHistory } = useWeightHistory();
+  const { logMeasurement } = useMeasurementHistory();
   const [completedDays, setCompletedDays] = useLocalStorage('pump-completed-workouts', {});
   const [memories, setMemories] = useLocalStorage('pump-coach-memories', []);
 
@@ -159,6 +161,19 @@ export default function Coach({ onClose }) {
         } else if (cmd.type === 'LOG_WEIGHT' && cmd.data.weight) {
           logWeight(cmd.data.weight);
           executed.push(`✓ Logged weight: ${cmd.data.weight} kg`);
+        } else if (cmd.type === 'LOG_MEASUREMENT' && cmd.data && (cmd.data.waist != null || cmd.data.neck != null || cmd.data.hip != null || cmd.data.bodyFatManual != null)) {
+          logMeasurement({
+            waist: cmd.data.waist ?? null,
+            neck: cmd.data.neck ?? null,
+            hip: cmd.data.hip ?? null,
+            bodyFatManual: cmd.data.bodyFatManual ?? null,
+          });
+          const parts = [];
+          if (cmd.data.waist != null) parts.push(`waist ${cmd.data.waist}cm`);
+          if (cmd.data.neck != null) parts.push(`neck ${cmd.data.neck}cm`);
+          if (cmd.data.hip != null) parts.push(`hip ${cmd.data.hip}cm`);
+          if (cmd.data.bodyFatManual != null) parts.push(`body fat ${cmd.data.bodyFatManual}%`);
+          executed.push(`✓ Logged measurements: ${parts.join(', ')}`);
         } else if (cmd.type === 'LOG_WORKOUT' && cmd.data.date && cmd.data.exercises) {
           // Log the workout with exercise details
           const workoutDate = cmd.data.date;
@@ -340,7 +355,8 @@ export default function Coach({ onClose }) {
     // Only auto-calculate calorie targets if user didn't provide them AND no targets exist yet
     // If user wants to change targets, they should tell Coach the new values directly
     if (!userProvidedFields.calorieTarget && !p.calorieTarget?.min && tdeeToUse) {
-      const goalDir = p.targetWeight > p.currentWeight ? 'gain' : p.targetWeight < p.currentWeight ? 'loss' : 'maintain';
+      const intent = p.goal?.intent || 'maintain';
+      const goalDir = intent === 'bulk' ? 'gain' : intent === 'maintain' ? 'maintain' : 'loss';
       const calorieTarget = calculateCalorieTargets(tdeeToUse, 0.75, goalDir);
       if (calorieTarget.min) {
         calculations.calorieTarget = calorieTarget;
@@ -349,8 +365,9 @@ export default function Coach({ onClose }) {
 
     // Only auto-calculate protein targets if user didn't provide them AND no targets exist yet
     if (!userProvidedFields.proteinTarget && !p.proteinTarget?.min && p.currentWeight) {
-      const goalDir = p.targetWeight > p.currentWeight ? 'gain' : p.targetWeight < p.currentWeight ? 'loss' : 'maintain';
-      const proteinGoal = goalDir === 'gain' ? 'muscle' : goalDir === 'loss' ? 'weightLoss' : 'maintenance';
+      const intent = p.goal?.intent || 'maintain';
+      const goalDir = intent === 'bulk' ? 'gain' : intent === 'maintain' ? 'maintain' : 'loss';
+      const proteinGoal = (intent === 'bulk' || intent === 'recomp') ? 'muscle' : goalDir === 'loss' ? 'weightLoss' : 'maintenance';
       const proteinTarget = calculateProteinTargets(p.currentWeight, proteinGoal);
       if (proteinTarget.min) {
         calculations.proteinTarget = proteinTarget;

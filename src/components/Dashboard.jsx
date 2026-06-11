@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Target, Flame, Beef, Dumbbell, Plus, Scale, UserCircle, ChevronRight, ChevronDown, Trash2, Download, X, TrendingDown, Trophy, Calendar } from 'lucide-react';
+import { Flame, Beef, Dumbbell, Plus, Scale, Ruler, UserCircle, ChevronRight, ChevronDown, Trash2, Download, X, TrendingDown, Trophy, Calendar } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement,
@@ -14,8 +14,12 @@ import { useBackup } from '../hooks/useSettings';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { format, subDays, parseISO } from 'date-fns';
 import WeightModal from './WeightModal';
+import MeasurementModal from './MeasurementModal';
 import MealLogger from './MealLogger';
 import WorkoutLogger from './WorkoutLogger';
+import GoalCard from './GoalCard';
+import SecondaryMetricStrip from './SecondaryMetricStrip';
+import { useMeasurementHistory } from '../hooks/useMeasurementHistory';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
@@ -30,15 +34,17 @@ const chartOptions = {
 };
 
 export default function Dashboard({ onNavigate, onOpenCoach }) {
-  const { profile, getDaysToGoal, getProgress, getCalorieTarget, getProteinTarget, getWeightLost } = useUserProfile();
+  const { profile, getProgress, getCalorieTarget, getProteinTarget, getWeightLost } = useUserProfile();
   const { getTodaysTotals, getTodaysMeals, removeMeal, getDailyTotals } = useNutritionLogs();
   const { schedule, getWorkoutForDate, getWorkoutTemplate } = useWorkoutSchedule();
   const { getTodaysWorkout, getAllPRs } = useWorkoutLogs();
   const { getLatestWeight, entries: weightEntries } = useWeightHistory();
+  const { entries: measurementHistory } = useMeasurementHistory();
   const { exportData, needsBackupReminder } = useBackup();
   const [completedDays] = useLocalStorage('pump-completed-workouts', {});
 
   const [showWeightModal, setShowWeightModal] = useState(false);
+  const [showMeasurementModal, setShowMeasurementModal] = useState(false);
   const [showMealLogger, setShowMealLogger] = useState(false);
   const [showWorkoutLogger, setShowWorkoutLogger] = useState(false);
   const [backupDismissed, setBackupDismissed] = useState(false);
@@ -74,7 +80,6 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
 
   const todaysTotals = getTodaysTotals();
   const todaysMeals = getTodaysMeals();
-  const daysToGoal = getDaysToGoal() || 0;
   const progress = getProgress() || 0;
   const weightLost = getWeightLost ? getWeightLost() : 0;
 
@@ -97,8 +102,10 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
 
   // Progress chart data
   const prs = getAllPRs ? getAllPRs() : {};
+  const metricData = { weightHistory: weightEntries, measurementHistory, prs };
   const prList = Object.entries(prs).map(([name, data]) => ({ name, ...data })).sort((a, b) => new Date(b.date) - new Date(a.date));
 
+  const weightTarget = profile.goal?.targets?.weight?.value ?? profile.targetWeight ?? null;
   const weightChartData = useMemo(() => {
     const sorted = [...weightEntries].sort((a, b) => new Date(a.date) - new Date(b.date));
     const last14 = sorted.slice(-14);
@@ -106,10 +113,12 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
       labels: last14.map(e => format(parseISO(e.date), 'MMM d')),
       datasets: [
         { label: 'Weight', data: last14.map(e => e.weight), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#22c55e' },
-        { label: 'Target', data: last14.map(() => profile.targetWeight), borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0 },
+        ...(weightTarget != null
+          ? [{ label: 'Target', data: last14.map(() => weightTarget), borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0 }]
+          : []),
       ],
     };
-  }, [weightEntries, profile.targetWeight]);
+  }, [weightEntries, weightTarget]);
 
   const calorieChartData = useMemo(() => {
     const days = [];
@@ -227,30 +236,9 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
         </div>
       )}
 
-      {/* Goal Countdown */}
-      {profile.targetWeight && profile.targetDate && (
-        <div className="bg-surface rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Target size={20} className="text-accent" />
-              <span className="font-medium">Goal: {profile.targetWeight} kg</span>
-            </div>
-            <span className="text-2xl font-bold text-accent">{daysToGoal > 0 ? daysToGoal : 0}</span>
-          </div>
-          <p className="text-text-muted text-sm mb-3">days remaining</p>
-          <div className="w-full bg-border rounded-full h-2">
-            <div
-              className="bg-accent h-2 rounded-full transition-all"
-              style={{ width: `${Math.min(Math.max(progress, 0), 100)}%` }}
-            />
-          </div>
-          <div className="flex justify-between text-xs text-text-muted mt-2">
-            <span>{profile.startingWeight || profile.currentWeight} kg</span>
-            <span>{currentWeight} kg</span>
-            <span>{profile.targetWeight} kg</span>
-          </div>
-        </div>
-      )}
+      {/* Goal-driven dashboard */}
+      <GoalCard profile={profile} data={metricData} />
+      <SecondaryMetricStrip profile={profile} data={metricData} />
 
       {/* Body Stats Summary — Navy is the displayed default; manual shown as small secondary */}
       {(() => {
@@ -446,6 +434,16 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
           </div>
           <span className="text-sm font-medium">Weigh In</span>
         </button>
+
+        <button
+          onClick={() => setShowMeasurementModal(true)}
+          className="bg-surface rounded-xl p-4 flex items-center gap-3"
+        >
+          <div className="w-10 h-10 bg-info/20 rounded-full flex items-center justify-center shrink-0">
+            <Ruler size={20} className="text-info" />
+          </div>
+          <span className="text-sm font-medium">Measurements</span>
+        </button>
       </div>
 
       {/* Collapsible Progress */}
@@ -539,6 +537,7 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
 
       {/* Modals */}
       {showWeightModal && <WeightModal onClose={() => setShowWeightModal(false)} />}
+      {showMeasurementModal && <MeasurementModal onClose={() => setShowMeasurementModal(false)} />}
       {showMealLogger && <MealLogger onClose={() => setShowMealLogger(false)} />}
       {showWorkoutLogger && (
         <WorkoutLogger

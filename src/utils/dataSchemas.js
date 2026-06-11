@@ -8,6 +8,19 @@ export const DEFAULT_USER_PROFILE = {
   startingWeight: null,
   targetWeight: null,
   targetDate: null,
+  // Goal model (two-axis): training intent + primary dashboard metric.
+  // Supersedes targetWeight/targetDate (kept above for back-compat + migration).
+  goal: {
+    intent: 'maintain',       // 'cut' | 'recomp' | 'bulk' | 'maintain'
+    primaryMetric: 'weight',  // 'weight' | 'bodyfat' | 'waist' | 'strength'
+    targets: {
+      weight: { value: null, date: null },
+      leanmass: { value: null, date: null },
+      bodyfat: { value: null, date: null },
+      waist: { value: null, date: null },
+      // strength is trend-only — no numeric target
+    },
+  },
   // Body measurements for Navy Method body fat calculation
   neckCircumference: null, // cm
   waistCircumference: null, // cm (at navel)
@@ -73,6 +86,16 @@ export const createMealLog = (items, totals, photoAnalyzed = false, date = null)
 export const createWeightEntry = (weight, date = null) => ({
   date: date || new Date().toISOString().split('T')[0],
   weight,
+  timestamp: new Date().toISOString(),
+});
+
+export const createMeasurementEntry = ({ waist = null, neck = null, hip = null, bodyFatManual = null }, date = null) => ({
+  id: `meas-${Date.now()}`,
+  date: date || new Date().toISOString().split('T')[0],
+  waist,
+  neck,
+  hip,
+  bodyFatManual,
   timestamp: new Date().toISOString(),
 });
 

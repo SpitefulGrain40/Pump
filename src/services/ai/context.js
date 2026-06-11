@@ -163,10 +163,13 @@ export function buildPerformanceContext(completedDays, weightHistory, nutritionL
     ? profile.startingWeight - profile.currentWeight
     : 0;
 
-  // Calculate required vs current rate
-  const daysToGoal = profile.targetDate ? differenceInDays(parseISO(profile.targetDate), today) : null;
-  const weightToLose = profile.currentWeight && profile.targetWeight
-    ? profile.currentWeight - profile.targetWeight
+  // Calculate required vs current rate. Prefer the goal model's weight target,
+  // falling back to the legacy targetWeight/targetDate for un-migrated profiles.
+  const goalWeightTarget = profile.goal?.targets?.weight?.value ?? profile.targetWeight ?? null;
+  const goalWeightDate = profile.goal?.targets?.weight?.date ?? profile.targetDate ?? null;
+  const daysToGoal = goalWeightDate ? differenceInDays(parseISO(goalWeightDate), today) : null;
+  const weightToLose = profile.currentWeight && goalWeightTarget
+    ? profile.currentWeight - goalWeightTarget
     : 0;
   const requiredRate = daysToGoal && weightToLose ? (weightToLose / daysToGoal) * 7 : 0;
   const currentRate = recentWeights.length >= 2 ? Math.abs(weightChange2Weeks) / 2 : 0;
@@ -335,6 +338,15 @@ export function buildCoachSystemPrompt(profile, context, performance = null, mem
   const weightToLose = profile.currentWeight && profile.targetWeight ? profile.currentWeight - profile.targetWeight : null;
   const weekType = context.weekType || 'A';
 
+  const goal = profile.goal || { intent: 'maintain', primaryMetric: 'weight', targets: {} };
+  const intentRules = {
+    cut: 'GOAL = CUT. Prioritise a calorie deficit and steady weight loss. Keep protein high to preserve muscle. Frame advice around the deficit.',
+    recomp: 'GOAL = RECOMP. Prioritise hitting the protein target with a moderate (small) deficit. Deprioritise the scale — focus on body composition (body fat %, waist) and strength retention.',
+    bulk: 'GOAL = BULK. Prioritise a calorie surplus with high protein to maximise muscle gain. Expect the scale to rise; that is intended.',
+    maintain: 'GOAL = MAINTAIN. Focus on hitting calorie and protein targets consistently with no deficit or surplus. Keep weight and composition stable.',
+  };
+  const primaryTarget = goal.targets?.[goal.primaryMetric];
+
   // Format memories section
   const memoriesSection = formatMemories(memories);
 
@@ -417,6 +429,11 @@ ${(() => {
 - Protein Target: ${profile.proteinTarget?.min && profile.proteinTarget?.max ? `${profile.proteinTarget.min}-${profile.proteinTarget.max}g/day` : 'Not set'}
 - Physical Limitations: ${profile.physicalNotes || 'None noted'}
 
+## GOAL
+- Training intent: ${goal.intent}
+- Primary metric: ${goal.primaryMetric}${primaryTarget?.value != null ? ` (target ${primaryTarget.value}${primaryTarget.date ? ` by ${primaryTarget.date}` : ''})` : ''}
+- ${intentRules[goal.intent] || intentRules.maintain}
+
 ## TODAY'S CONTEXT
 - Date: ${format(new Date(), 'EEEE, MMMM d, yyyy')}
 - Current schedule phase: ${weekType}${scheduleDescription}
@@ -460,6 +477,7 @@ When the user wants to log or update data, include these commands in your respon
   IMPORTANT: Only log the items explicitly mentioned in the current message. If the user says "add a banana to my lunch", log ONLY the banana — do NOT re-log the existing lunch items. Each LOG_MEAL block should contain only the new items being added.
   IMPORTANT: To log a meal for a previous date (max 2 days ago), add a "date" field: [LOG_MEAL: {"date": "2026-05-08", "items": [...], "totals": {...}}]. Today is ${format(new Date(), 'yyyy-MM-dd')}. If no date is specified, defaults to today.
 - Log weight: [LOG_WEIGHT: {"weight": 104.2}]
+- Log measurements: [LOG_MEASUREMENT: {"waist": 88, "neck": 40, "hip": 100, "bodyFatManual": 18}] (all fields optional; body fat auto-computed from waist/neck/hip if omitted)
 - Log workout performance: [LOG_WORKOUT: {"date": "2026-05-08", "exercises": [{"name": "Landmine Press", "sets": 4, "reps": [8, 8, 8, 8], "weight": [30, 30, 30, 30]}, {"name": "DB Incline Press", "sets": 3, "reps": [10, 10, 8], "weight": [20, 20, 20]}], "notes": "Felt strong today"}]
   - date: The date of the workout (YYYY-MM-DD format)
   - exercises: Array of exercises performed
@@ -766,9 +784,12 @@ export function parseAICommands(content) {
   const setTemplateDataList = extractAllJSON(content, '[SET_TEMPLATE:');
   setTemplateDataList.forEach(data => commands.push({ type: 'SET_TEMPLATE', data }));
 
+  const measurementDataList = extractAllJSON(content, '[LOG_MEASUREMENT:');
+  measurementDataList.forEach(data => commands.push({ type: 'LOG_MEASUREMENT', data }));
+
   // Clean content - remove all command blocks
   let cleanContent = content;
-  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE', 'SET_TEMPLATE'];
+  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE', 'SET_TEMPLATE', 'LOG_MEASUREMENT'];
 
   for (const cmd of commandPatterns) {
     const marker = `[${cmd}:`;

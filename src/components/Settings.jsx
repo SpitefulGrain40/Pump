@@ -6,11 +6,22 @@ import {
 import { useSettings, useBackup } from '../hooks/useSettings';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { testConnection } from '../services/ai';
+import { INTENTS, PRIMARY_METRICS, INTENT_LABELS, INTENT_DESCRIPTIONS, DEFAULT_METRIC_FOR_INTENT } from '../utils/goal';
+import { getMetric } from '../utils/metrics';
 
 export default function Settings() {
   const { aiSettings, updateAISettings, isConfigured } = useSettings();
   const { profile, updateProfile } = useUserProfile();
   const { exportData, importData, clearAllData } = useBackup();
+
+  const goal = profile.goal || { intent: 'maintain', primaryMetric: 'weight', targets: { weight: {}, leanmass: {}, bodyfat: {}, waist: {} } };
+  const setIntent = (intent) => updateProfile({ goal: { ...goal, intent, primaryMetric: DEFAULT_METRIC_FOR_INTENT[intent] || goal.primaryMetric } });
+  const setPrimaryMetric = (primaryMetric) => updateProfile({ goal: { ...goal, primaryMetric } });
+  const setTarget = (field, value) => updateProfile({
+    goal: { ...goal, targets: { ...goal.targets, [goal.primaryMetric]: { ...goal.targets?.[goal.primaryMetric], [field]: value } } },
+  });
+  const primaryMetricObj = getMetric(goal.primaryMetric);
+  const primaryTarget = goal.targets?.[goal.primaryMetric] || { value: null, date: null };
 
   const [activeSection, setActiveSection] = useState(null);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -159,21 +170,55 @@ export default function Settings() {
           </p>
 
           {/* Goals */}
-          <div className="text-xs text-text-muted font-medium uppercase tracking-wide pt-2">Goals</div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field
-              label="Target Weight (kg)"
-              type="number"
-              value={profile.targetWeight}
-              onChange={(v) => updateProfile({ targetWeight: parseFloat(v) })}
-            />
-            <Field
-              label="Target Date"
-              type="date"
-              value={profile.targetDate}
-              onChange={(v) => updateProfile({ targetDate: v })}
-            />
+          <div className="text-xs text-text-muted font-medium uppercase tracking-wide pt-2">Goal</div>
+
+          <div className="space-y-2">
+            {INTENTS.map((intent) => (
+              <button
+                key={intent}
+                type="button"
+                onClick={() => setIntent(intent)}
+                className={`w-full text-left p-3 rounded-lg border ${goal.intent === intent ? 'border-accent bg-accent/10' : 'border-border bg-bg'}`}
+              >
+                <div className="text-sm font-medium">{INTENT_LABELS[intent]}</div>
+                <div className="text-xs text-text-muted mt-0.5">{INTENT_DESCRIPTIONS[intent]}</div>
+              </button>
+            ))}
           </div>
+
+          <div className="text-xs text-text-muted font-medium uppercase tracking-wide pt-2">Primary metric</div>
+          <div className="grid grid-cols-3 gap-2">
+            {PRIMARY_METRICS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setPrimaryMetric(key)}
+                className={`p-2 rounded-lg border text-xs ${goal.primaryMetric === key ? 'border-accent bg-accent/10' : 'border-border bg-bg'}`}
+              >
+                {getMetric(key).label}
+              </button>
+            ))}
+          </div>
+
+          {primaryMetricObj.supportsTarget && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label={`Target ${primaryMetricObj.label} (${primaryMetricObj.unit})`}
+                type="number"
+                value={primaryTarget.value}
+                onChange={(v) => setTarget('value', v === '' ? null : parseFloat(v))}
+              />
+              <Field
+                label="Target Date"
+                type="date"
+                value={primaryTarget.date}
+                onChange={(v) => setTarget('date', v || null)}
+              />
+            </div>
+          )}
+          {!primaryMetricObj.supportsTarget && (
+            <p className="text-xs text-text-muted">Strength is tracked as a trend (your top lifts) — no numeric target.</p>
+          )}
 
           {/* Nutrition Targets */}
           <div className="text-xs text-text-muted font-medium uppercase tracking-wide pt-2">Nutrition Targets</div>

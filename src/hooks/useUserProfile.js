@@ -2,6 +2,7 @@ import { useLocalStorage } from './useLocalStorage';
 import { DEFAULT_USER_PROFILE } from '../utils/dataSchemas';
 import { differenceInDays, parseISO } from 'date-fns';
 import { useEffect } from 'react';
+import { migrateGoal } from '../utils/goal';
 
 export function useUserProfile() {
   const [profile, setProfile, reset] = useLocalStorage('pump-user-profile', DEFAULT_USER_PROFILE);
@@ -30,16 +31,28 @@ export function useUserProfile() {
     }
   }, [profile.schedulePattern, setProfile]);
 
+  // Build the goal model for profiles created before it existed (runs once).
+  useEffect(() => {
+    if (!profile.goal) {
+      setProfile(prev => ({ ...prev, goal: migrateGoal(prev) }));
+    }
+  }, [profile.goal, setProfile]);
+
   const updateProfile = (updates) => {
     setProfile((prev) => ({ ...prev, ...updates }));
   };
 
   const getDaysToGoal = () => {
-    return differenceInDays(parseISO(profile.targetDate), new Date());
+    const date = profile.goal?.targets?.weight?.date ?? profile.targetDate ?? null;
+    if (!date) return null;
+    return differenceInDays(parseISO(date), new Date());
   };
 
+  const getWeightTarget = () => profile.goal?.targets?.weight?.value ?? profile.targetWeight ?? null;
+
   const getWeightToLose = () => {
-    return profile.currentWeight - profile.targetWeight;
+    const t = getWeightTarget();
+    return t != null ? profile.currentWeight - t : 0;
   };
 
   const getWeightLost = () => {
@@ -53,9 +66,11 @@ export function useUserProfile() {
   };
 
   const getProgress = () => {
-    const total = profile.startingWeight - profile.targetWeight;
-    const lost = getWeightLost();
-    return total > 0 ? (lost / total) * 100 : 0;
+    const t = getWeightTarget();
+    if (t == null || !profile.startingWeight) return 0;
+    const total = profile.startingWeight - t;
+    const lost = profile.startingWeight - profile.currentWeight;
+    return total !== 0 ? Math.min(Math.max((lost / total) * 100, 0), 100) : 0;
   };
 
   const getCalorieTarget = () => {
@@ -100,6 +115,7 @@ export function useUserProfile() {
     updateProfile,
     reset,
     getDaysToGoal,
+    getWeightTarget,
     getWeightToLose,
     getWeightLost,
     getRequiredWeeklyRate,
