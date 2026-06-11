@@ -373,11 +373,14 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD`) so Android users 
 - Backup/restore via JSON export
 - Service worker with cache-busting for automatic Android updates
 - Schedule phase colouring for shift workers; mid-workout Coach access
+- Workout logger Finish is **hold-to-confirm** (1.2s fill bar) to avoid accidental completion
+- Coach chat search jumps to the top of results and scrolls through all matches
 - Prompt caching on Anthropic API calls (system prompt cached)
 - **Vitest** unit tests for pure logic (`utils/goal.js`, `utils/metrics.js`) — `npm test`
 - Test deploy workflow (`npm run deploy:test` → `docs/test/` on master)
 
 ### Known Quirks & Limitations
+- **Schedule entry shapes**: a day in `pump-workout-schedule` may be a plain type string (`'push'`, from the default generator) OR an object (`{ lunch: { type, notes }, evening: {...}, calories, protein }`, from Coach/the Schedule editor). Any code reading the schedule must normalise both (e.g. Dashboard's "Today's Workout" card extracts `lunch.type ?? evening.type`).
 - **Lean mass needs body-fat data**: it's weight × (1 − bf%), so without periodic measurement snapshots its trend is flat/empty (shows a hint).
 - **eslint**: `npm run lint` ignores build output (docs/dist); ~15 pre-existing structural react-compiler / rules-of-hooks warnings in components remain (deliberately not mechanically "fixed").
 - **Cross-device sync**: Not supported — backup/restore is the only migration path
