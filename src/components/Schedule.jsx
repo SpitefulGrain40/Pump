@@ -243,7 +243,10 @@ export default function Schedule({ onNavigate, onOpenCoach }) {
       const completedSets = ex.actual.sets.filter(Boolean).length;
       const avgWeight = ex.actual.weight.reduce((a, b) => a + b, 0) / ex.actual.weight.length;
       const avgReps = ex.actual.reps.reduce((a, b) => a + b, 0) / ex.actual.reps.length;
-      return `${ex.name}: ${completedSets} sets, ~${Math.round(avgReps)} reps @ ${Math.round(avgWeight)}kg`;
+      // Preserve the actual weight lifted (to the nearest 0.001) — don't round up to
+      // a whole number, which misreports e.g. 22.5kg as 23kg in the Coach summary.
+      const shownWeight = Math.round(avgWeight * 1000) / 1000;
+      return `${ex.name}: ${completedSets} sets, ~${Math.round(avgReps)} reps @ ${shownWeight}kg`;
     }).join('\n');
 
     const prText = newPRs.length > 0
