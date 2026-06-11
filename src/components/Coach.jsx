@@ -104,6 +104,7 @@ export default function Coach() {
   const [customSystemPrompt, setCustomSystemPrompt] = useLocalStorage('pump-coach-system-prompt', '');
   const [promptDraft, setPromptDraft] = useState('');
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -136,8 +137,18 @@ export default function Coach() {
   }, []);
 
   useEffect(() => {
+    // Don't yank the view to the bottom while the user is browsing search hits.
+    if (isSearching && searchQuery) return;
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isSearching, searchQuery]);
+
+  // When a search is active, jump to the top of the results so the user can
+  // scroll down through every match in order.
+  useEffect(() => {
+    if (isSearching && searchQuery) {
+      messagesContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [isSearching, searchQuery]);
 
   const executeCommands = (commands) => {
     const executed = [];
@@ -626,7 +637,7 @@ export default function Coach() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && !isLoading && (
           <div className="text-center text-text-muted py-8">
             <Sparkles size={40} className="mx-auto mb-3 opacity-50" />

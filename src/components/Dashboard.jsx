@@ -90,8 +90,27 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
   const calorieTarget = todaySchedule?.calories || defaultCalorieTarget;
   const proteinTarget = todaySchedule?.protein || defaultProteinTarget;
 
-  const todayWorkoutType = getWorkoutForDate(new Date());
+  // Schedule entries come in two shapes: a plain type string ('push') from the
+  // default generator, or an object ({ lunch: { type, notes }, evening: {...} })
+  // from Coach/the Schedule editor. Normalise to a type string + optional notes.
+  const rawTodaySchedule = getWorkoutForDate(new Date());
+  const todayWorkoutType = typeof rawTodaySchedule === 'string'
+    ? rawTodaySchedule
+    : (rawTodaySchedule?.lunch?.type ?? rawTodaySchedule?.evening?.type ?? null);
+  const todayWorkoutNotes = (rawTodaySchedule && typeof rawTodaySchedule === 'object')
+    ? (rawTodaySchedule?.lunch?.notes ?? rawTodaySchedule?.evening?.notes ?? '')
+    : '';
   const todayTemplate = todayWorkoutType ? getWorkoutTemplate(todayWorkoutType) : null;
+  // Friendly label for activities that don't have a full exercise template (bike, skate, rest…).
+  const ACTIVITY_LABELS = {
+    push: 'Push', pull: 'Pull', legs: 'Legs', power: 'Power', strength: 'Strength',
+    bike: 'Bike', bikesprints: 'Bike Sprints', hiit: 'HIIT', skate: 'Skate', ride: 'Big Ride',
+    yoga: 'Yoga', core: 'Core', active: 'Active Recovery', rest: 'Rest Day', family: 'Family Time',
+  };
+  const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+  const todayWorkoutLabel = todayTemplate?.name
+    || (todayWorkoutType ? (ACTIVITY_LABELS[todayWorkoutType] || cap(todayWorkoutType)) : null);
+  const isRestDay = todayWorkoutType === 'rest' || todayWorkoutType === 'family';
   const todaysWorkoutLog = getTodaysWorkout();
 
   const latestWeight = getLatestWeight();
@@ -288,7 +307,7 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Dumbbell size={20} className="text-info" />
-            <span className="font-medium">{todayTemplate?.name || 'No workout scheduled'}</span>
+            <span className="font-medium">{todayWorkoutLabel || 'No workout scheduled'}</span>
           </div>
           {todaysWorkoutLog?.completedAt && (
             <span className="text-xs bg-accent/20 text-accent px-2 py-1 rounded">Done</span>
@@ -316,8 +335,22 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
               </button>
             )}
           </>
-        ) : todayTemplate?.name === 'Rest Day' ? (
-          <p className="text-text-muted text-sm">Recovery day - stretch and rest</p>
+        ) : isRestDay ? (
+          <p className="text-text-muted text-sm">
+            {todayWorkoutType === 'family' ? 'Family time — enjoy your day off.' : 'Recovery day — stretch and rest.'}
+          </p>
+        ) : todayWorkoutType ? (
+          <>
+            {todayWorkoutNotes && <p className="text-text-muted text-sm mb-3">{todayWorkoutNotes}</p>}
+            {!todaysWorkoutLog?.completedAt && (
+              <button
+                onClick={() => setShowWorkoutLogger(true)}
+                className="w-full bg-info/20 text-info py-2 rounded-lg font-medium"
+              >
+                Start Workout
+              </button>
+            )}
+          </>
         ) : (
           <button
             onClick={() => onNavigate('schedule')}

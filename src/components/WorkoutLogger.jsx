@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Check, Trophy, Play, Pause, RotateCcw, MessageCircle, ChevronDown, SkipForward } from 'lucide-react';
 import { useWorkoutLogs } from '../hooks/useWorkoutLogs';
 import Coach from './Coach';
@@ -146,6 +146,39 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
     setIsComplete(true);
     localStorage.removeItem('pump-workout-draft');
   };
+
+  // Hold-to-confirm for Finish — a fill bar sweeps the button over HOLD_MS;
+  // releasing early cancels, so an accidental tap can't end the workout.
+  const HOLD_MS = 1200;
+  const [holdProgress, setHoldProgress] = useState(0);
+  const holdRaf = useRef(null);
+  const holdStartRef = useRef(0);
+
+  const stopHold = () => {
+    if (holdRaf.current) cancelAnimationFrame(holdRaf.current);
+    holdRaf.current = null;
+    setHoldProgress(0);
+  };
+
+  const startHold = () => {
+    if (holdRaf.current) return;
+    holdStartRef.current = performance.now();
+    const tick = (now) => {
+      const pct = Math.min(((now - holdStartRef.current) / HOLD_MS) * 100, 100);
+      setHoldProgress(pct);
+      if (pct >= 100) {
+        holdRaf.current = null;
+        setHoldProgress(0);
+        handleFinishWorkout();
+        return;
+      }
+      holdRaf.current = requestAnimationFrame(tick);
+    };
+    holdRaf.current = requestAnimationFrame(tick);
+  };
+
+  // Cancel any in-flight hold animation if the logger unmounts mid-press.
+  useEffect(() => () => { if (holdRaf.current) cancelAnimationFrame(holdRaf.current); }, []);
 
   const handleSkipExercise = (index) => {
     const updated = [...exercises];
@@ -370,10 +403,17 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
 
           {currentExercise === exercises.length - 1 ? (
             <button
-              onClick={handleFinishWorkout}
-              className="flex-1 py-3 bg-accent text-bg rounded-lg font-semibold"
+              onPointerDown={startHold}
+              onPointerUp={stopHold}
+              onPointerLeave={stopHold}
+              onPointerCancel={stopHold}
+              className="relative flex-1 py-3 bg-accent text-bg rounded-lg font-semibold overflow-hidden select-none touch-none"
             >
-              Finish
+              <span
+                className="absolute inset-y-0 left-0 bg-black/25"
+                style={{ width: `${holdProgress}%`, transition: holdProgress === 0 ? 'width 200ms ease-out' : 'none' }}
+              />
+              <span className="relative">{holdProgress > 0 ? 'Keep holding…' : 'Hold to Finish'}</span>
             </button>
           ) : (
             <button
