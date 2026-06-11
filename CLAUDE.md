@@ -54,21 +54,25 @@ src/
 ├── index.css                  # Tailwind config + OLED theme CSS variables
 ├── main.jsx                   # Entry point
 ├── components/
-│   ├── Dashboard.jsx          # Home: daily overview, today's meals, workout
+│   ├── Dashboard.jsx          # Home: GoalCard hero + secondary strip, daily overview, meals, workout
+│   ├── GoalCard.jsx           # Hero card for the primary goal metric (descriptor-driven)
+│   ├── SecondaryMetricStrip.jsx # Chips for non-primary metrics, tap to expand inline chart
 │   ├── Coach.jsx              # AI chat, command execution, image/URL attachments
 │   ├── Doc.jsx                # AI therapy companion, session memory, prompt editor
 │   ├── Schedule.jsx           # Fortnightly calendar, shift pattern colouring
-│   ├── Progress.jsx           # Charts, PRs, 30-day consistency grid
-│   ├── Settings.jsx           # Profile, AI config, backup/restore, onboarding reset
+│   ├── Progress.jsx           # Goal-aware headline metric + secondary strip, calories, PRs, consistency grid
+│   ├── Settings.jsx           # Profile, Goal (intent + metric + targets), AI config, backup/restore
 │   ├── Nutrition.jsx          # Full nutrition history, date navigation, 7-day averages
 │   ├── MealLogger.jsx         # Quick meal log modal, photo analysis
 │   ├── WorkoutLogger.jsx      # Exercise logger, PR detection, mid-workout Coach
 │   ├── WeightModal.jsx        # Quick weigh-in
-│   └── OnboardingWizard.jsx   # First-run setup wizard (skippable)
+│   ├── MeasurementModal.jsx   # Quick measurement snapshot (waist/neck/hip/manual bf)
+│   └── OnboardingWizard.jsx   # First-run setup wizard (goal step, seeds weight + measurement)
 ├── hooks/
-│   ├── useLocalStorage.js     # Generic hook with cross-component sync via custom events
-│   ├── useUserProfile.js      # Profile, goals, phase/week-type calculation
+│   ├── useLocalStorage.js     # Generic hook with cross-component sync (per-instance sender id)
+│   ├── useUserProfile.js      # Profile, goal migration, phase/week-type calculation
 │   ├── useWeightHistory.js    # Weight log
+│   ├── useMeasurementHistory.js # Measurement snapshots (powers body-fat/waist/lean-mass trends)
 │   ├── useNutritionLogs.js    # Meal log, daily totals, weekly averages
 │   ├── useWorkoutLogs.js      # Workout logs, PRs, schedule, templates
 │   └── useSettings.js         # AI settings, backup/restore utilities
@@ -76,10 +80,12 @@ src/
 │   └── ai/
 │       ├── index.js           # Unified exports
 │       ├── providers.js       # OpenRouter + Anthropic + CLI proxy adapters, multimodal support
-│       └── context.js         # System prompt builder, context aggregator, command parser
+│       └── context.js         # System prompt builder (incl. GOAL block), command parser
 └── utils/
     ├── dataSchemas.js         # Data structures, default exercise library, workout templates
-    └── calculations.js        # Navy body fat, resolveBodyFat helper
+    ├── calculations.js        # Navy body fat, resolveBodyFat helper
+    ├── goal.js                # Two-axis goal model: intents, migration, progress math (tested)
+    └── metrics.js             # Metric descriptor registry: weight/leanmass/bodyfat/waist/strength (tested)
 
 scripts/
 ├── pump-cli-proxy.cjs         # Local dev proxy: routes Coach through claude CLI
@@ -123,11 +129,22 @@ public/
 ```javascript
 {
   name, gender, age, height,
-  currentWeight, startingWeight, targetWeight, targetDate,
+  currentWeight, startingWeight, targetWeight, targetDate,  // targetWeight/Date legacy — superseded by goal
+  goal: {                                  // Two-axis goal model (see utils/goal.js + utils/metrics.js)
+    intent: 'cut' | 'recomp' | 'bulk' | 'maintain',   // drives Coach nutrition behaviour
+    primaryMetric: 'weight' | 'leanmass' | 'bodyfat' | 'waist' | 'strength',  // drives dashboard hero
+    targets: {                             // optional numeric target + date, kept per-metric
+      weight:  { value, date },
+      leanmass:{ value, date },
+      bodyfat: { value, date },
+      waist:   { value, date },            // strength = trend-only, no numeric target
+    }
+  },
   tdee,                                    // Can be set manually or from Garmin
   calorieTarget: { min, max },
   proteinTarget: { min, max },
-  bodyFatPercentage, neckCircumference, waistCircumference,
+  bodyFatManual, bodyFatPercentage,        // bodyFatManual = user-entered; legacy bodyFatPercentage kept for back-compat
+  neckCircumference, waistCircumference,
   hipCircumference,                        // Required for females (Navy body fat formula)
   physicalNotes,                           // Injuries, limitations
   activityLevel,
@@ -153,6 +170,8 @@ public/
 - Day-level cycles (cycleLength < 14): `phaseIndex = floor(position / (cycleLength / labels.length))`
 - Legacy `weekAStart` profiles: auto-migrate via fallback logic, no manual action needed
 
+**Goal migration** (`migrateGoal` in `utils/goal.js`, run once by `useUserProfile`): profiles without a `goal` object get one built from legacy `targetWeight`/`targetDate` — intent inferred (below current weight = cut, above = bulk, else maintain), `primaryMetric: 'weight'`, target carried into `goal.targets.weight`. `targetWeight`/`targetDate` remain for back-compat but `goal` is the source of truth.
+
 ### localStorage Keys
 
 | Key | Purpose |
@@ -165,6 +184,7 @@ public/
 | `pump-workout-logs` | Completed workout log array |
 | `pump-prs` | Personal records per exercise |
 | `pump-weight-history` | Weight entries |
+| `pump-measurement-history` | Measurement snapshots (waist/neck/hip/manual bf) — powers bodyfat/waist/lean-mass trends |
 | `pump-chat-history` | Coach chat history (images stripped before saving) |
 | `pump-coach-memories` | Coach long-term memories |
 | `pump-coach-system-prompt` | Custom Coach system prompt override |
@@ -191,6 +211,13 @@ Coach embeds structured commands in responses which the frontend parses and exec
 - Multiple blocks per response all execute (`extractAllJSON`)
 - Optional `date` field for backdating up to 2 days
 - **Only log items explicitly mentioned in the current message** — do not re-log existing meal items
+
+### Log Measurements
+```
+[LOG_MEASUREMENT: {"waist": 88, "neck": 40, "hip": 100, "bodyFatManual": 18}]
+```
+- All fields optional; body fat auto-computed (Navy) from waist/neck/hip if `bodyFatManual` omitted
+- Multiple blocks per response all execute; also updates the profile's current measurement values
 
 ### Log Weight
 ```
@@ -330,25 +357,29 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD`) so Android users 
 
 ---
 
-## Current State (as of 2026-05-31)
+## Current State (as of 2026-06-11)
 
 ### Completed & Working
-- Full onboarding wizard with skip/restore option
-- Dashboard with daily goals, workout, nutrition summary, Navy body fat method
+- **Goal-driven dashboard** — two-axis model: training **intent** (cut/recomp/bulk/maintain) + **primary metric** (weight/lean-mass/body-fat/waist/strength). GoalCard hero on Home + Progress, secondary-metric strip, per-metric optional target+date.
+- **Measurement history** — `pump-measurement-history` log + "Measurements" modal + Coach `[LOG_MEASUREMENT]`; powers body-fat %, waist, and lean-mass trends (lean mass = weight × (1 − bf%)).
+- Coach adapts nutrition behaviour to intent (deficit/surplus/protein emphasis) + GOAL block in system prompt
+- Full onboarding wizard (goal step; seeds starting weight + first measurement snapshot)
 - Workout scheduling with flexible shift patterns (A/B fortnightly, 4-on/4-off, custom)
 - Workout logger with set/rep/weight tracking, PR detection, draft auto-save, skip exercise
 - Nutrition logging (manual + photo analysis via Haiku), daily targets, 7-day averages
 - Coach AI with full context, command execution, image attachments (camera + gallery), URL fetching, web search, chat search
 - Doc AI therapy companion with two-tier session memory (Sonnet 4.6, not Opus)
-- Progress charts, categorised PR records (push/pull/legs/core/cardio), 30-day consistency grid
+- Progress: goal-aware headline metric + secondary strip, categorised PR records, 30-day consistency grid
 - Backup/restore via JSON export
 - Service worker with cache-busting for automatic Android updates
-- Schedule phase colouring for shift workers
-- Mid-workout Coach access
+- Schedule phase colouring for shift workers; mid-workout Coach access
 - Prompt caching on Anthropic API calls (system prompt cached)
+- **Vitest** unit tests for pure logic (`utils/goal.js`, `utils/metrics.js`) — `npm test`
 - Test deploy workflow (`npm run deploy:test` → `docs/test/` on master)
 
 ### Known Quirks & Limitations
+- **Lean mass needs body-fat data**: it's weight × (1 − bf%), so without periodic measurement snapshots its trend is flat/empty (shows a hint).
+- **eslint**: `npm run lint` ignores build output (docs/dist); ~15 pre-existing structural react-compiler / rules-of-hooks warnings in components remain (deliberately not mechanically "fixed").
 - **Cross-device sync**: Not supported — backup/restore is the only migration path
 - **5MB localStorage limit**: Image data is stripped from chat history to mitigate; large chat histories or many workouts could approach the limit over time
 - **Day boundary in Coach**: The fix (injecting a date marker between messages from different days) relies on message timestamps being set correctly. Messages saved without timestamps default to today.
