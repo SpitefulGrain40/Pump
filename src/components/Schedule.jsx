@@ -6,7 +6,7 @@ import {
 import { useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { format, addDays, startOfWeek, isToday, parseISO, isBefore, getDay, differenceInDays } from 'date-fns';
+import { format, addDays, startOfWeek, isToday, parseISO, getDay, differenceInDays } from 'date-fns';
 import WorkoutLogger from './WorkoutLogger';
 
 const ACTIVITY_CONFIG = {
@@ -274,8 +274,6 @@ export default function Schedule({ onNavigate, onOpenCoach }) {
     const lunchDone = isCompleted(day.date, 'lunch');
     const eveningDone = isCompleted(day.date, 'evening');
     const allDone = hasLunch && hasEvening ? (lunchDone && eveningDone) : (hasLunch ? lunchDone : (hasEvening ? eveningDone : false));
-    const isPast = isBefore(parseISO(day.date), new Date()) && !dayIsToday;
-
     // Day-level phase colouring (e.g. 4-on/4-off)
     const phase = isDayLevelCycle ? getDayPhase(day.date) : null;
     const sp = profile.schedulePattern;

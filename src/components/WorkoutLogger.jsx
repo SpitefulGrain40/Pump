@@ -18,7 +18,7 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
   const [currentExercise, setCurrentExercise] = useState(0);
   const [timer, setTimer] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [restTime, setRestTime] = useState(90);
+  const [restTime] = useState(90);
   const [newPRs, setNewPRs] = useState([]);
   const [isComplete, setIsComplete] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
@@ -37,7 +37,7 @@ export default function WorkoutLogger({ workout, onClose, onComplete, onOpenCoac
             return;
           }
         }
-      } catch {}
+      } catch { /* ignore malformed draft */ }
 
       const exerciseData = workout.exercises.map((ex) => {
         const history = getExerciseHistory(ex.name, 1);

@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import {
-  User, Bot, Database, Info, ChevronRight, Check, X, Loader2,
+  User, Bot, Database, Info, ChevronRight, Check, Loader2,
   Download, Upload, Trash2, ExternalLink, Eye, EyeOff
 } from 'lucide-react';
 import { useSettings, useBackup } from '../hooks/useSettings';
