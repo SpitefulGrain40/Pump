@@ -38,7 +38,9 @@ The philosophy is that mind and body health are equally important and need to be
 
 **AI as a command executor, not just a chatbot.** Coach responses can embed structured commands (`[LOG_MEAL: {...}]`, `[SET_SCHEDULE: {...}]` etc.) that the frontend parses and executes. The AI effectively writes directly to the user's data.
 
-**System prompt as context injection.** Every Coach message includes a freshly-built system prompt with the user's full profile, today's nutrition, recent workouts, schedule, memories, and performance metrics. No persistent AI memory — the context is rebuilt from localStorage on every request.
+**System prompt as context injection.** Every Coach message includes a freshly-built system prompt with the user's profile, today's context, training cycle, and memories. Historical data (nutrition, workouts, PRs, weight, templates, performance) is NOT dumped into the prompt — Coach fetches it via client-side tools on demand. No persistent AI memory — context is rebuilt from localStorage on every request.
+
+**Client-side tool use.** Coach has 7 tools it can call mid-conversation (Anthropic provider only): `get_nutrition_history`, `get_meal_items`, `get_workout_history`, `get_pr_records`, `get_weight_history`, `get_workout_templates`, `get_performance_summary`. These are localStorage reads executed by the frontend; results are sent back as `tool_result` blocks. The Anthropic provider runs a loop until `stop_reason: end_turn`. CLI and OpenRouter providers receive no tools (one-shot only).
 
 **Jina AI for URL fetching.** When users paste URLs into Coach, content is fetched via `https://r.jina.ai/{url}` (free, no API key). This converts any webpage to clean text for inclusion in the prompt. Chosen over Anthropic's web search tool ($0.01/search) because it fetches specific URLs rather than searching.
 
@@ -357,17 +359,20 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD-HHMMSS`, date **and
 
 ---
 
-## Current State (as of 2026-06-11)
+## Current State (as of 2026-06-25)
 
 ### Completed & Working
 - **Goal-driven dashboard** — two-axis model: training **intent** (cut/recomp/bulk/maintain) + **primary metric** (weight/lean-mass/body-fat/waist/strength). GoalCard hero on Home + Progress, secondary-metric strip, per-metric optional target+date.
 - **Measurement history** — `pump-measurement-history` log + "Measurements" modal + Coach `[LOG_MEASUREMENT]`; powers body-fat %, waist, and lean-mass trends (lean mass = weight × (1 − bf%)).
 - Coach adapts nutrition behaviour to intent (deficit/surplus/protein emphasis) + GOAL block in system prompt
 - Full onboarding wizard (goal step; seeds starting weight + first measurement snapshot)
-- Workout scheduling with flexible shift patterns (A/B fortnightly, 4-on/4-off, custom)
+- **Flexible cycle scheduling** — position-based `cycleTemplate` replaces weekday-anchored `weekTemplates`. Supports any repeating pattern: 8-day shift rotors, A/B fortnights, 4-on/4-off, custom. `schedule.js` utility handles all cycle maths (rotor-safe phase labels, explicit overrides win). `SET_CYCLE_TEMPLATE` command writes atomically (no A/B overwrite bug). Auto-migrates legacy profiles on load.
+- **Custom workout template types** — create `push_b`, `pull_a`, `legs_b` etc. via Coach; Schedule tiles inherit emoji/colour from base type automatically.
 - Workout logger with set/rep/weight tracking, PR detection, draft auto-save, skip exercise
 - Nutrition logging (manual + photo analysis via Haiku), daily targets, 7-day averages
-- Coach AI with full context, command execution, image attachments (camera + gallery), URL fetching, web search, chat search
+- **Coach AI with client-side tool use** (Anthropic provider) — 7 on-demand tools replace static data dumps in the system prompt (~40% prompt reduction): `get_nutrition_history`, `get_meal_items`, `get_workout_history`, `get_pr_records`, `get_weight_history`, `get_workout_templates`, `get_performance_summary`. Coach fetches only what the conversation needs.
+- Coach AI: command execution, image attachments (camera + gallery), URL fetching, web search, chat search
+- **Quick prompt pills always visible** (horizontal scroll strip) — not just on empty chat
 - Doc AI therapy companion with two-tier session memory (Sonnet 4.6, not Opus)
 - Progress: goal-aware headline metric + secondary strip, categorised PR records, 30-day consistency grid
 - Backup/restore via JSON export
@@ -376,33 +381,32 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD-HHMMSS`, date **and
 - Workout logger Finish is **hold-to-confirm** (1.2s fill bar) to avoid accidental completion
 - Coach chat search jumps to the top of results and scrolls through all matches
 - Prompt caching on Anthropic API calls (system prompt cached)
-- **Vitest** unit tests for pure logic (`utils/goal.js`, `utils/metrics.js`) — `npm test`
+- **Vitest** unit tests for cycle logic (`utils/schedule.test.js`) and pure logic (`utils/goal.js`, `utils/metrics.js`) — `npm test`
 - Test deploy workflow (`npm run deploy:test` → `docs/test/` on master)
 
 ### Known Quirks & Limitations
-- **Schedule entry shapes**: a day in `pump-workout-schedule` may be a plain type string (`'push'`, from the default generator) OR an object (`{ lunch: { type, notes }, evening: {...}, calories, protein }`, from Coach/the Schedule editor). Any code reading the schedule must normalise both (e.g. Dashboard's "Today's Workout" card extracts `lunch.type ?? evening.type`).
+- **Schedule entry shapes**: a day in `pump-workout-schedule` may be a plain type string (`'push'`, from the default generator) OR an object (`{ lunch: { type, notes }, evening: {...}, calories, protein }`, from Coach/the Schedule editor). Any code reading the schedule must normalise both.
+- **Tool use is Anthropic-only**: CLI proxy and OpenRouter providers don't support the tool-use loop. Coach on those providers reverts to static context only (no on-demand data access).
 - **Lean mass needs body-fat data**: it's weight × (1 − bf%), so without periodic measurement snapshots its trend is flat/empty (shows a hint).
 - **eslint**: `npm run lint` ignores build output (docs/dist); ~15 pre-existing structural react-compiler / rules-of-hooks warnings in components remain (deliberately not mechanically "fixed").
 - **Cross-device sync**: Not supported — backup/restore is the only migration path
 - **5MB localStorage limit**: Image data is stripped from chat history to mitigate; large chat histories or many workouts could approach the limit over time
-- **Day boundary in Coach**: The fix (injecting a date marker between messages from different days) relies on message timestamps being set correctly. Messages saved without timestamps default to today.
-- **SET_SCHEDULE JSON truncation**: If Coach writes verbose notes (full exercise lists) into notes fields, the JSON gets truncated and the command fails silently. Notes must be under 10 words.
+- **SET_SCHEDULE JSON truncation**: If Coach writes verbose notes into notes fields, the JSON gets truncated and the command fails silently. Notes must be under 10 words.
 - **Preview server**: Requires manual `cp dist/index.src.html dist/index.html` step after each build — the deploy script handles this for production but not for local preview.
-- **CLI proxy on Windows**: Uses bash shebang in `.bin/vite` — must invoke via `node node_modules/vite/bin/vite.js` not `npx vite` on Windows.
 
 ### Next Steps / Potential Improvements
-- App rename (current name "Pump" is a placeholder — "Hale" is the leading candidate, trademark-clear)
+- App rename (current name "Pump" is a placeholder — "Satis" is the leading candidate)
+- OpenRouter tool use support (format varies by model — Claude models via OpenRouter may support Anthropic tool format)
 - Chat history pruning strategy (MAX_STORED_MESSAGES ~500) as localStorage grows over time
 - URL allowlist for Jina fetching (scheme validation: http/https only)
 - Backup import field whitelist (prevent unexpected localStorage keys)
-- CLI proxy model parameter whitelist
 
 ---
 
 ## Troubleshooting
 
-### Coach doesn't see week templates
-Templates in `profile.weekTemplates`. If missing after migration: `location.reload()` — auto-migration runs on load.
+### Coach doesn't see cycle templates
+Templates in `profile.cycleTemplate` (array, position-based). If missing after migration from old `weekTemplates` format: `location.reload()` — auto-migration runs on load and writes `cycleTemplate`.
 
 ### Coach blending yesterday's and today's data
 The day boundary marker is injected based on message timestamps. If old messages lack timestamps, they all appear as today. Use the Clear button in Coach header to reset chat history — memories are preserved separately.
