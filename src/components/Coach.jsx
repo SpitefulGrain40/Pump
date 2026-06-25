@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { differenceInDays, format } from 'date-fns';
+import { differenceInDays, format, subDays, parseISO } from 'date-fns';
 import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Link, ChevronDown, ChevronRight, Settings, Camera } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useSettings } from '../hooks/useSettings';
@@ -12,7 +12,9 @@ import {
   sendMessage,
   buildCoachSystemPrompt,
   buildContextFromState,
+  buildPerformanceContext,
   parseAICommands,
+  COACH_TOOLS,
 } from '../services/ai';
 import {
   calculateBodyFatNavy,
@@ -85,10 +87,10 @@ function parseMessageWithUrls(content) {
 }
 
 const QUICK_PROMPTS = [
-  { label: 'Plan next 2 weeks', prompt: "Plan my schedule for the next two weeks. Use [SET_SCHEDULE: ...] to populate each day with the right workout type, calorie target, and any relevant notes based on my templates and goals." },
+  { label: 'Progress + schedule review', prompt: "Review my last 2 weeks — completion, weight trend and nutrition averages. Then tell me honestly if I'm on track, and suggest any changes to my workout templates or training cycle to keep me progressing." },
+  { label: 'Set up my cycle', prompt: "Help me set up my training cycle. I'll describe my routine (shift pattern, which workouts on which days) and you capture it with SET_CYCLE_TEMPLATE." },
   { label: 'Log meal', prompt: "I just ate. Let me describe it and you help me log the calories and protein." },
   { label: 'Today\'s workout', prompt: "What's my workout for today? Walk me through it." },
-  { label: 'Am I on track?', prompt: "How am I doing with my weight loss goal? Am I on track?" },
 ];
 
 export default function Coach() {
@@ -120,7 +122,7 @@ export default function Coach() {
   const { meals, logMeal } = useNutritionLogs();
   const { logs: workoutLogs, prs, setPRs } = useWorkoutLogs();
   const { schedule, setWorkoutForDate, setSchedule } = useWorkoutSchedule();
-  const { addExercise, removeExercise, updateExercise, setTemplate } = useWorkoutTemplates();
+  const { templates, addExercise, removeExercise, updateExercise, setTemplate } = useWorkoutTemplates();
   const { logWeight, entries: weightHistory } = useWeightHistory();
   const { logMeasurement } = useMeasurementHistory();
   const [completedDays, setCompletedDays] = useLocalStorage('pump-completed-workouts', {});
@@ -246,6 +248,10 @@ export default function Coach() {
           const dates = Object.keys(cmd.data);
           setSchedule(prev => ({ ...prev, ...cmd.data }));
           executed.push(`✓ Schedule updated: ${dates.length} days set`);
+        } else if (cmd.type === 'SET_CYCLE_TEMPLATE' && cmd.data) {
+          // Atomic write of the whole position-based cycle (no merge — replaces it)
+          updateProfile({ cycleTemplate: cmd.data });
+          executed.push(`✓ Training cycle set: ${Object.keys(cmd.data).length} days`);
         } else if (cmd.type === 'UPDATE_PROFILE' && cmd.data) {
           const updates = { ...cmd.data };
 
@@ -436,7 +442,7 @@ export default function Coach() {
     }
 
     try {
-      const context = buildContextFromState(profile, meals, workoutLogs, schedule, weightHistory, completedDays);
+      const context = buildContextFromState(profile, meals, workoutLogs, schedule, weightHistory, completedDays, templates);
       const systemPrompt = customSystemPrompt
         ? customSystemPrompt
         : buildCoachSystemPrompt(profile, context, context.performance, memories);
@@ -465,7 +471,72 @@ export default function Coach() {
         lastDate = msgDate;
       }
 
-      const response = await sendMessage(aiSettings, messagesWithBoundaries, systemPrompt);
+      // Build a tool executor that reads from localStorage hooks on demand.
+      // Only wired for Anthropic — CLI and OpenRouter providers ignore it.
+      const toolExecutor = (name, input) => {
+        const today = new Date();
+        const cap = (n, max) => Math.min(n || 0, max);
+        const cutoff = (days, max) => subDays(today, cap(days, max) || max);
+
+        switch (name) {
+          case 'get_nutrition_history': {
+            const since = cutoff(input.days || 14, 90);
+            const byDay = {};
+            meals
+              .filter(m => parseISO(m.timestamp) >= since)
+              .forEach(m => {
+                const day = format(parseISO(m.timestamp), 'yyyy-MM-dd');
+                if (!byDay[day]) byDay[day] = { calories: 0, protein: 0 };
+                byDay[day].calories += m.totals?.calories || 0;
+                byDay[day].protein += m.totals?.protein || 0;
+              });
+            return byDay;
+          }
+          case 'get_meal_items': {
+            const targetDate = input.date;
+            return meals
+              .filter(m => format(parseISO(m.timestamp), 'yyyy-MM-dd') === targetDate)
+              .flatMap(m => m.items || [])
+              .map(i => ({ name: i.name, calories: i.calories ?? 0, protein: i.protein ?? 0 }));
+          }
+          case 'get_workout_history': {
+            const since = cutoff(input.days || 30, 180);
+            let logs = workoutLogs
+              .filter(w => w.completedAt && parseISO(w.date) >= since)
+              .sort((a, b) => new Date(b.date) - new Date(a.date));
+            if (input.exercise) {
+              const q = input.exercise.toLowerCase();
+              logs = logs.filter(w => w.exercises?.some(e => e.name?.toLowerCase().includes(q)));
+            }
+            return logs;
+          }
+          case 'get_pr_records': {
+            if (input.exercise) {
+              const q = input.exercise.toLowerCase();
+              const entry = Object.entries(prs).find(([k]) => k.toLowerCase().includes(q));
+              return entry ? Object.fromEntries([entry]) : {};
+            }
+            return prs;
+          }
+          case 'get_weight_history': {
+            const since = cutoff(input.days || 30, 365);
+            return weightHistory
+              .filter(w => parseISO(w.date) >= since)
+              .sort((a, b) => new Date(b.date) - new Date(a.date));
+          }
+          case 'get_workout_templates':
+            return templates || {};
+          case 'get_performance_summary':
+            return buildPerformanceContext(completedDays, weightHistory, meals, schedule, profile);
+          default:
+            return { error: `Unknown tool: ${name}` };
+        }
+      };
+
+      const response = await sendMessage(aiSettings, messagesWithBoundaries, systemPrompt, {
+        tools: COACH_TOOLS,
+        toolExecutor,
+      });
       const { commands, cleanContent } = parseAICommands(response.content);
       console.log('Parsed commands:', commands);
       const executedActions = executeCommands(commands);
@@ -713,15 +784,15 @@ export default function Coach() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick prompts */}
-      {messages.length === 0 && !isLoading && (
+      {/* Quick prompts — always visible, horizontally scrollable */}
+      {!isLoading && (
         <div className="px-4 pb-2">
-          <div className="flex flex-wrap gap-2 pb-2">
+          <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
             {QUICK_PROMPTS.map((qp, i) => (
               <button
                 key={i}
                 onClick={() => handleQuickPrompt(qp.prompt)}
-                className="px-4 py-2 rounded-full text-sm font-medium bg-surface-light text-text-muted hover:text-text"
+                className="px-4 py-2 rounded-full text-sm font-medium bg-surface-light text-text-muted hover:text-text shrink-0"
               >
                 {qp.label}
               </button>

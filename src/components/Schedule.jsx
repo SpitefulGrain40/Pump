@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
 import { useUserProfile } from '../hooks/useUserProfile';
+import { resolveDaySchedule, hasCycleTemplate } from '../utils/schedule';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { format, addDays, startOfWeek, isToday, parseISO, getDay, differenceInDays } from 'date-fns';
 import WorkoutLogger from './WorkoutLogger';
@@ -26,6 +27,10 @@ const ACTIVITY_CONFIG = {
   core: { label: 'Core', icon: Dumbbell, color: 'bg-orange-500/20 text-orange-400', emoji: '🔥' },
   family: { label: 'Family', icon: Coffee, color: 'bg-rose-500/20 text-rose-400', emoji: '👨‍👧' },
 };
+
+// Custom types like push_b, pull_a, legs_b inherit config from their base type (push, pull, legs)
+const getActivityConfig = (type) =>
+  ACTIVITY_CONFIG[type] || ACTIVITY_CONFIG[type?.split('_')[0]] || null;
 
 export default function Schedule({ onNavigate, onOpenCoach }) {
   const { schedule, setSchedule, getFortnightSchedule } = useWorkoutSchedule();
@@ -99,6 +104,9 @@ export default function Schedule({ onNavigate, onOpenCoach }) {
   };
 
   const checkShouldShowBanner = () => {
+    // A cycle template auto-fills every week, so there's nothing to "plan".
+    if (hasCycleTemplate(profile)) return false;
+
     const today = new Date();
     const dayOfWeek = getDay(today); // 0=Sun, 5=Fri, 6=Sat
 
@@ -165,7 +173,7 @@ export default function Schedule({ onNavigate, onOpenCoach }) {
 
   const handleDayClick = (day) => {
     setSelectedDay(day);
-    const dayData = schedule[day.date];
+    const dayData = resolveDaySchedule(profile, schedule, day.date);
     setEditData(typeof dayData === 'object' ? { ...dayData } : { type: dayData || null });
     setShowDayDetail(true);
     setEditMode(false);
@@ -198,10 +206,10 @@ export default function Schedule({ onNavigate, onOpenCoach }) {
   const getDayDisplay = (dayData) => {
     if (!dayData) return { icon: null, color: 'bg-surface', label: '', emoji: '' };
     if (typeof dayData === 'string') {
-      return ACTIVITY_CONFIG[dayData] || { icon: null, color: 'bg-surface', label: dayData, emoji: '' };
+      return getActivityConfig(dayData) || { icon: null, color: 'bg-surface', label: dayData, emoji: '' };
     }
     const mainType = dayData.lunch?.type || dayData.evening?.type || dayData.type;
-    return ACTIVITY_CONFIG[mainType] || { icon: null, color: 'bg-surface', label: '', emoji: '' };
+    return getActivityConfig(mainType) || { icon: null, color: 'bg-surface', label: '', emoji: '' };
   };
 
   const hasExercises = (type) => {
@@ -214,7 +222,7 @@ export default function Schedule({ onNavigate, onOpenCoach }) {
     if (!template?.exercises) return;
 
     setActiveWorkout({
-      name: `${ACTIVITY_CONFIG[session.type]?.label || session.type} - ${format(parseISO(selectedDay.date), 'MMM d')}`,
+      name: `${getActivityConfig(session.type)?.label || session.type} - ${format(parseISO(selectedDay.date), 'MMM d')}`,
       date: selectedDay.date,
       sessionType,
       exercises: template.exercises
@@ -269,7 +277,7 @@ export default function Schedule({ onNavigate, onOpenCoach }) {
   };
 
   const renderDayCard = (day) => {
-    const dayData = schedule[day.date];
+    const dayData = resolveDaySchedule(profile, schedule, day.date);
     const display = getDayDisplay(dayData);
     const dayIsToday = isToday(parseISO(day.date));
     const hasEvening = dayData && typeof dayData === 'object' && dayData.evening;
@@ -534,8 +542,8 @@ export default function Schedule({ onNavigate, onOpenCoach }) {
                         </button>
                       </div>
                       <div className={`font-medium flex items-center gap-2 ${isCompleted(selectedDay.date, 'lunch') ? 'line-through opacity-60' : ''}`}>
-                        <span>{ACTIVITY_CONFIG[editData.lunch.type]?.emoji}</span>
-                        <span>{ACTIVITY_CONFIG[editData.lunch.type]?.label || editData.lunch.type}</span>
+                        <span>{getActivityConfig(editData.lunch.type)?.emoji}</span>
+                        <span>{getActivityConfig(editData.lunch.type)?.label || editData.lunch.type}</span>
                       </div>
                       {editData.lunch.notes && (
                         <p className="text-sm text-text-muted mt-1">{editData.lunch.notes}</p>
@@ -569,8 +577,8 @@ export default function Schedule({ onNavigate, onOpenCoach }) {
                         </button>
                       </div>
                       <div className={`font-medium flex items-center gap-2 ${isCompleted(selectedDay.date, 'evening') ? 'line-through opacity-60' : ''}`}>
-                        <span>{ACTIVITY_CONFIG[editData.evening.type]?.emoji}</span>
-                        <span>{ACTIVITY_CONFIG[editData.evening.type]?.label || editData.evening.type}</span>
+                        <span>{getActivityConfig(editData.evening.type)?.emoji}</span>
+                        <span>{getActivityConfig(editData.evening.type)?.label || editData.evening.type}</span>
                       </div>
                       {editData.evening.notes && (
                         <p className="text-sm text-text-muted mt-1">{editData.evening.notes}</p>
@@ -600,7 +608,7 @@ export default function Schedule({ onNavigate, onOpenCoach }) {
                   {/* Legacy type display */}
                   {editData?.type && !editData?.lunch && !editData?.evening && (
                     <div className="bg-bg rounded-lg p-3">
-                      <div className="font-medium">{ACTIVITY_CONFIG[editData.type]?.label || editData.type}</div>
+                      <div className="font-medium">{getActivityConfig(editData.type)?.label || editData.type}</div>
                       {renderWorkoutDetails(editData.type)}
                     </div>
                   )}

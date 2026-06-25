@@ -1,4 +1,5 @@
 import { format, parseISO, differenceInDays, subDays } from 'date-fns';
+import { getCyclePosition, getPhaseLabel, getPhaseLabelByPosition, resolveDaySchedule } from '../../utils/schedule';
 
 // Build memory section for system prompt
 function formatMemories(memories) {
@@ -61,24 +62,44 @@ function formatMemories(memories) {
   return section;
 }
 
-// Helper to format week template for Coach prompt
-function formatWeekTemplate(template) {
-  if (!template) return 'Not configured';
+// Compact, position-based view of the user's cycle for the Coach prompt.
+// One line per cycle position so Coach sees the whole pattern at a glance,
+// regardless of weekday — the app handles laying it onto the calendar.
+function formatCycle(profile) {
+  const sp = profile.schedulePattern;
+  const ct = profile.cycleTemplate;
+  if (!ct || Object.keys(ct).length === 0) return null;
 
-  const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const len = sp?.cycleLength || Object.keys(ct).length;
+  const todayPos = getCyclePosition(sp, new Date());
+  const lines = [];
 
-  return days.map((day, i) => {
-    const d = template[day];
-    if (!d) return `${dayNames[i]}: Rest`;
+  for (let p = 1; p <= len; p++) {
+    const day = ct[String(p)];
+    const label = getPhaseLabelByPosition(sp, p);
+    const type = day?.lunch?.type || day?.type || 'rest';
+    const evening = day?.evening?.type ? ` + ${day.evening.type}` : '';
+    const notes = day?.lunch?.notes ? ` (${day.lunch.notes})` : '';
+    const cals = day?.calories ? ` | ${day.calories} kcal` : '';
+    const marker = p === todayPos ? '   ← today' : '';
+    lines.push(`${String(p).padStart(2)} [${label}] ${type}${evening}${notes}${cals}${marker}`);
+  }
+  return lines.join('\n');
+}
 
-    const lunch = d.lunch ? `${d.lunch.type}${d.lunch.notes ? ` (${d.lunch.notes})` : ''}` : 'Rest';
-    const evening = d.evening ? ` + Evening: ${d.evening.type}` : '';
-    const cals = d.calories ? ` | ${d.calories} kcal` : '';
-    const notes = d.notes ? ` | ${d.notes}` : '';
-
-    return `${dayNames[i]}: ${lunch}${evening}${cals}${notes}`;
-  }).join('\n');
+// The user's actual exercise lists, so Coach can suggest concrete swaps when
+// asked to "change things up" instead of guessing what they currently do.
+function formatTemplates(templates) {
+  if (!templates) return null;
+  const lines = [];
+  Object.entries(templates).forEach(([key, t]) => {
+    if (!t?.exercises?.length) return;
+    const exs = t.exercises
+      .map(e => `${e.name} ${e.sets}x${e.reps}${e.weight ? ` @${e.weight}kg` : ''}`)
+      .join(', ');
+    lines.push(`- ${key}: ${exs}`);
+  });
+  return lines.length ? lines.join('\n') : null;
 }
 
 // Build performance metrics from historical data
@@ -348,46 +369,11 @@ export function buildCoachSystemPrompt(profile, context, performance = null, mem
   // Format memories section
   const memoriesSection = formatMemories(memories);
 
-  // Format performance section
-  let performanceSection = '';
-  if (performance) {
-    const missedList = performance.missedSessions.length > 0
-      ? performance.missedSessions.map(s => `${s.date} (${s.type})`).join(', ')
-      : 'None';
-
-    performanceSection = `
-## PERFORMANCE METRICS
-
-### Recent (Last 2 Weeks)
-- Workout completion: ${performance.recentCompletion.percentage}% (${performance.recentCompletion.completed}/${performance.recentCompletion.scheduled} sessions)
-- Missed sessions: ${missedList}
-- Weight change: ${performance.weightChange2Weeks > 0 ? '+' : ''}${performance.weightChange2Weeks}kg
-- Avg calories: ${performance.avgCalories || 'No data'} kcal/day
-- Avg protein: ${performance.avgProtein || 'No data'}g/day
-- Calories vs target: ${performance.caloriesVsTarget}
-
-### All-Time
-- Total workouts completed: ${performance.totalWorkoutsCompleted}
-- Current streak: ${performance.currentStreak} days
-
-### Goal Progress
-- Current loss rate: ${performance.currentRate}kg/week
-- Required rate: ${performance.requiredRate}kg/week
-- Status: ${performance.onTrack ? 'ON TRACK - maintain current program' : 'BEHIND - consider small adjustments'}
-`;
-  }
-
-  // Format week templates — support any labels (A/B or custom)
-  const weekLabels = profile.schedulePattern?.labels || ['A', 'B'];
-  const weekTemplatesSection = weekLabels.map(label => {
-    const template = profile.weekTemplates?.[label];
-    if (!template) return '';
-    return `### Week ${label}:\n${formatWeekTemplate(template)}`;
-  }).filter(Boolean).join('\n\n');
-
   const scheduleDescription = profile.schedulePattern?.description
     ? `\nSchedule pattern: ${profile.schedulePattern.description}`
     : '';
+
+  const cycleLength = profile.schedulePattern?.cycleLength || 14;
 
   return `You are Coach, an expert fitness coach and nutritionist for the Pump app. You are knowledgeable, encouraging, and concise.
 
@@ -434,49 +420,42 @@ ${(() => {
 
 ## TODAY'S CONTEXT
 - Date: ${format(new Date(), 'EEEE, MMMM d, yyyy')}
-- Current schedule phase: ${weekType}${scheduleDescription}
+${context.cycleText ? `- Current phase: ${weekType}${context.cyclePosition ? ` (day ${context.cyclePosition} of ${cycleLength}-day cycle)` : ''}${scheduleDescription}` : ''}
 ${context.todayWorkout ? `- Today's Workout: ${context.todayWorkout}` : '- No workout scheduled today'}
 ${context.todayNutrition ? `- Today's Nutrition: ${context.todayNutrition.calories} kcal, ${context.todayNutrition.protein}g protein` : '- No meals logged today'}
 
 ## RECENT HISTORY
 ${context.recentWorkouts || 'No recent workouts logged.'}
-${context.weightTrend || ''}
-${performanceSection}
+${context.performanceSnapshot ? `\nSnapshot: ${context.performanceSnapshot}` : ''}
 
-## WEEK TEMPLATES (User's preferred patterns)
+## TRAINING CYCLE
+The user's repeating pattern. The app auto-fills the calendar from this, so you normally only change the cycle itself — not individual dates.
+${context.cycleText || 'No cycle set up yet. If the user describes a recurring routine (e.g. an 8-day shift rotor, or an A/B fortnight), capture it with SET_CYCLE_TEMPLATE.'}
 
-${weekTemplatesSection || 'No templates configured yet.'}
+## DATA TOOLS
+Call these to look up real data — never guess or make up numbers:
+- get_nutrition_history(days): daily calorie/protein totals for the last N days (no food items)
+- get_meal_items(date): individual foods logged on a specific date — use for re-logging or "what did I eat on X?"
+- get_workout_history(days, exercise?): completed sessions; filter by exercise name if needed
+- get_pr_records(exercise?): personal bests for all or one exercise
+- get_weight_history(days): body weight entries over time
+- get_workout_templates(): full exercise lists for all templates (push, pull, legs, push_b, etc.)
+- get_performance_summary(): 2-week completion rate, streak, weight change, nutrition averages
 
-## SCHEDULE PLANNING RULES
-
-When creating upcoming schedules:
-1. **Use the week template as the BASE** - don't reinvent the wheel
-2. **If user is ON TRACK** (within 0.2kg/week of required rate):
-   - "If it ain't broke, don't fix it"
-   - Keep the template exactly unless user requests changes
-   - Just acknowledge progress and apply the template
-3. **If user is BEHIND on weight loss:**
-   - Suggest ONE small adjustment (extra cardio OR slightly lower calories, not both)
-   - Explain the reasoning briefly
-   - Ask if they want the change before applying
-4. **If user MISSED sessions:**
-   - Note which ones and ask if there was a reason (don't assume)
-   - Fatigue, schedule conflicts, and injury need different responses
-   - Be understanding, not judgmental
-5. **If completion rate < 70%:**
-   - Suggest simplifying (fewer sessions, not harder ones)
-   - Consider if the schedule is too ambitious
+## PLANNING APPROACH
+${context.cycleText
+  ? 'Use the cycle and the data tools to give specific advice. If the user is progressing well, leave things alone. If they\'re bored, plateauing, or hitting PRs, call get_workout_templates() to see their current exercises, suggest concrete swaps, and apply with SET_TEMPLATE. Call get_performance_summary() before any progress review. Be honest; don\'t pad.'
+  : 'This user is just getting started. Help them set up their training cycle (SET_CYCLE_TEMPLATE) and build workout templates (SET_TEMPLATE). Ask what their typical weekly routine looks like before suggesting anything. Keep it simple and practical.'
+}
 
 ## YOUR CAPABILITIES
 When the user wants to log or update data, include these commands in your response:
 
 - Log food: [LOG_MEAL: {"items": [{"name": "Chicken breast", "calories": 280, "protein": 52}, {"name": "Rice", "calories": 200, "protein": 4}], "totals": {"calories": 480, "protein": 56}}]
-  IMPORTANT: Only include actual food items in "items" array - do NOT include a "Total" row. The totals go in the separate "totals" object.
-  IMPORTANT: Only log the items explicitly mentioned in the current message. If the user says "add a banana to my lunch", log ONLY the banana — do NOT re-log the existing lunch items. Each LOG_MEAL block should contain only the new items being added.
-  IMPORTANT: To log a meal for a previous date (max 2 days ago), add a "date" field: [LOG_MEAL: {"date": "2026-05-08", "items": [...], "totals": {...}}]. Today is ${format(new Date(), 'yyyy-MM-dd')}. If no date is specified, defaults to today.
-- Log weight: [LOG_WEIGHT: {"weight": 104.2}]
+  Items array holds only food rows (no "Total" row — totals go in the separate object). Log ONLY items in the current message; don't re-log existing meal items. For a past date (max 2 days), add "date": "YYYY-MM-DD". Today is ${format(new Date(), 'yyyy-MM-dd')}; defaults to today.
+- Log weight: [LOG_WEIGHT: {"weight": 82.0}]
 - Log measurements: [LOG_MEASUREMENT: {"waist": 88, "neck": 40, "hip": 100, "bodyFatManual": 18}] (all fields optional; body fat auto-computed from waist/neck/hip if omitted)
-- Log workout performance: [LOG_WORKOUT: {"date": "2026-05-08", "exercises": [{"name": "Landmine Press", "sets": 4, "reps": [8, 8, 8, 8], "weight": [30, 30, 30, 30]}, {"name": "DB Incline Press", "sets": 3, "reps": [10, 10, 8], "weight": [20, 20, 20]}], "notes": "Felt strong today"}]
+- Log workout performance: [LOG_WORKOUT: {"date": "2026-06-01", "exercises": [{"name": "Bench Press", "sets": 4, "reps": [8, 8, 8, 7], "weight": [80, 80, 80, 80]}, {"name": "Overhead Press", "sets": 3, "reps": [10, 10, 9], "weight": [50, 50, 50]}], "notes": "Felt strong today"}]
   - date: The date of the workout (YYYY-MM-DD format)
   - exercises: Array of exercises performed
   - Each exercise has: name, sets (number), reps (array per set), weight (array per set in kg)
@@ -495,62 +474,31 @@ When the user wants to log or update data, include these commands in your respon
   - bodyFatManual is for user-reported DEXA/scan/scale readings only, not for storing your own Navy calculation.
 - **Modify workout templates**: [UPDATE_TEMPLATE: {"template": "push", "action": "add", "exercise": {"name": "Exercise Name", "sets": 3, "reps": 10, "weight": 20}}]
   - action: "add" | "remove" | "update"
-  - template: "push" | "pull" | "legs" | "bike" | "core"
+  - template: any template key — built-in (push, pull, legs, bike, core) or custom (push_b, pull_a, etc.)
   - For remove: {"template": "push", "action": "remove", "exerciseName": "Exercise Name"}
   - For update: {"template": "push", "action": "update", "exerciseName": "Exercise Name", "updates": {"weight": 25}}
-- **Replace full template**: [SET_TEMPLATE: {"template": "push", "exercises": [{"name": "Barbell Bench Press", "sets": 4, "reps": 8, "weight": 80}, ...]}]
-  Use ONLY to replace all exercises in a workout template (push/pull/legs/core/bike). NOT for scheduling days.
+- **Replace full template**: [SET_TEMPLATE: {"template": "push_b", "exercises": [{"name": "Bench Press", "sets": 4, "reps": 8, "weight": 80}, ...]}]
+  Replaces all exercises for the named template. Use any key — built-in (push/pull/legs/core/bike) or a new custom one (push_b, pull_a, etc.). NOT for scheduling days. To add an A/B variant: create a new template key (push_b), then update the cycle position to use that type.
 
-### Schedule Commands
-Use [SET_SCHEDULE: ...] to assign workout types, calorie targets, and notes to specific calendar dates. This is how you populate the user's schedule view.
-Set full day schedule with lunch/evening sessions, calories, protein, and notes:
-[SET_SCHEDULE: {
-  "2026-05-08": {
-    "lunch": {"type": "push", "notes": "Gym: Push + SB Strength"},
-    "evening": {"type": "rest", "notes": "50g Protein Dinner"},
-    "calories": 2300,
-    "protein": 180,
-    "notes": "Bed by 11:30pm"
-  },
-  "2026-05-09": {
-    "lunch": {"type": "bike", "notes": "20m HIIT Intervals"},
-    "evening": {"type": "skate", "notes": "Garage session"},
-    "calories": 2400,
-    "protein": 190,
-    "notes": "Kitchen closed 9pm"
-  }
+### Scheduling
+The schedule is driven by the user's TRAINING CYCLE (above). The app auto-fills every calendar date from it, so you almost never set individual dates.
+
+- **Set/replace the whole cycle** with [SET_CYCLE_TEMPLATE: {...}] — keyed by cycle POSITION ("1".."${cycleLength}"), not weekday. One atomic block. Use this when the user describes or changes their recurring routine:
+[SET_CYCLE_TEMPLATE: {
+  "1": {"lunch": {"type": "push", "notes": "Push A"}, "calories": 3200},
+  "2": {"lunch": {"type": "pull", "notes": "Pull A"}, "calories": 3200},
+  "3": {"lunch": {"type": "legs", "notes": "Legs A"}, "calories": 3200},
+  "4": {"lunch": {"type": "rest"}},
+  "5": {"lunch": {"type": "push", "notes": "Push B"}, "calories": 3000},
+  "6": {"lunch": {"type": "pull", "notes": "Pull B"}, "calories": 3000},
+  "7": {"lunch": {"type": "legs", "notes": "Legs B"}, "calories": 3000},
+  "8": {"lunch": {"type": "rest"}}
 }]
+  Each position is a day object: lunch {type, notes}, optional evening {type, notes}, calories, protein, notes. Keep notes short (under 10 words).
 
-Activity types:
-- Gym: push, pull, legs, power, strength
-- Cardio: bike, bikesprints, hiit, skate, ride (big ride 3-4hrs)
-- Recovery: rest, active, yoga, core
-- Other: family
+- **One-off override** for a specific date (travel, illness) with [SET_SCHEDULE: {"2026-05-08": {"lunch": {"type": "rest"}, "notes": "Travelling"}}] — same day-object shape, keyed by date. Only for exceptions; don't rebuild the whole calendar this way.
 
-When creating schedules, include:
-- lunch.type and lunch.notes for the main daytime session
-- evening.type and evening.notes for evening activity
-- calories target for the day (from template or adjusted)
-- protein target for the day (from template or adjusted)
-- notes for daily standards (sleep time, kitchen rules, etc.)
-- **IMPORTANT**: Only output ONE [SET_SCHEDULE: ...] block per message (14 days max). Do NOT split across multiple messages in one turn.
-- **IMPORTANT**: Keep all notes fields SHORT (under 10 words). Exercise details belong in workout templates, not schedule notes.
-
-### Saving Week Templates
-When the user establishes their recurring weekly pattern, save it to their profile so you can reference it for future schedule planning:
-[UPDATE_PROFILE: {"weekTemplates": {
-  "On Shift": {
-    "mon": {"lunch": {"type": "push", "notes": "Gym between shouts"}, "calories": 3800},
-    "tue": {"lunch": {"type": "pull", "notes": "Gym between shouts"}, "calories": 3800}
-  },
-  "Off Shift": {
-    "mon": {"lunch": {"type": "legs", "notes": "Home gym"}, "calories": 3500},
-    "tue": {"lunch": {"type": "rest", "notes": "Rest day"}, "calories": 3200}
-  }
-}}]
-- Keys match the schedule labels (e.g. "On Shift"/"Off Shift", "A"/"B", or "Week" for fixed)
-- Day keys: mon, tue, wed, thu, fri, sat, sun
-- Each day can have lunch, evening, calories, protein, notes
+Built-in types: push, pull, legs, power, strength, bike, bikesprints, hiit, skate, ride, rest, active, yoga, core, family. You can also use custom types (push_b, pull_a, legs_b, etc.) — create them with SET_TEMPLATE first, then reference them in the cycle.
 
 ## FORMATTING RULES
 - Be concise and direct. No fluff.
@@ -576,7 +524,7 @@ Save important things you learn about the user that aren't captured elsewhere:
 - [SAVE_MEMORY: {"type": "preference", "content": "Hates burpees - avoid in programming"}]
 - [SAVE_MEMORY: {"type": "injury", "content": "Tweaked left shoulder doing overhead press", "date": "2026-05-08"}]
 - [SAVE_MEMORY: {"type": "insight", "content": "Tends to skip Thursday evening workouts - suggest morning alternatives"}]
-- [SAVE_MEMORY: {"type": "milestone", "content": "First time under 100kg in 2 years!", "date": "2026-05-08"}]
+- [SAVE_MEMORY: {"type": "milestone", "content": "Hit first bodyweight pull-up!", "date": "2026-06-01"}]
 
 Types: preference, injury, insight, milestone, other
 
@@ -592,7 +540,7 @@ ${memoriesSection}
 Remember: You can help log meals, suggest workouts, modify exercises for injuries, track progress, and provide nutrition advice. Be the coach that keeps them accountable.`;
 }
 
-export function buildContextFromState(profile, nutritionLogs, workoutLogs, workoutSchedule, weightHistory, completedDays = {}) {
+export function buildContextFromState(profile, nutritionLogs, workoutLogs, workoutSchedule, weightHistory, completedDays = {}, templates = null) {
   const today = new Date();
   const todayStr = format(today, 'yyyy-MM-dd');
 
@@ -607,8 +555,8 @@ export function buildContextFromState(profile, nutritionLogs, workoutLogs, worko
     { calories: 0, protein: 0 }
   );
 
-  // Handle both string and object schedule formats
-  const todaySchedule = workoutSchedule[todayStr];
+  // Resolve today from explicit schedule first, then the cycle template.
+  const todaySchedule = resolveDaySchedule(profile, workoutSchedule, todayStr);
   let todayWorkout = null;
   if (todaySchedule) {
     if (typeof todaySchedule === 'string') {
@@ -625,29 +573,15 @@ export function buildContextFromState(profile, nutritionLogs, workoutLogs, worko
   const recentWorkouts = workoutLogs
     .filter((w) => w.completedAt)
     .sort((a, b) => new Date(b.date) - new Date(a.date))
-    .slice(0, 3)
+    .slice(0, 2)
     .map((w) => `- ${w.date}: ${w.exercises?.length || 0} exercises`)
     .join('\n');
 
-  const recentWeights = weightHistory
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
-    .slice(0, 5);
-
-  let weightTrend = '';
-  if (recentWeights.length >= 2) {
-    const change = recentWeights[0].weight - recentWeights[recentWeights.length - 1].weight;
-    weightTrend = `\n## WEIGHT TREND (last ${recentWeights.length} entries)\n${change > 0 ? '+' : ''}${change.toFixed(1)} kg`;
-  }
-
-  // Calculate current schedule phase using new flexible format
+  // Current schedule phase — splits the cycle evenly across labels (rotor-safe).
   let weekType = 'A';
   const sp = profile.schedulePattern;
   if (sp?.type && sp?.cycleStart && sp?.labels?.length > 0) {
-    const startDate = parseISO(sp.cycleStart);
-    const daysDiff = differenceInDays(today, startDate);
-    const positionInCycle = ((daysDiff % sp.cycleLength) + sp.cycleLength) % sp.cycleLength;
-    const weekIndex = Math.floor(positionInCycle / 7);
-    weekType = sp.labels[weekIndex] ?? sp.labels[0];
+    weekType = getPhaseLabel(sp, today);
   } else if (sp?.weekAStart) {
     // Legacy format
     const startDate = parseISO(sp.weekAStart);
@@ -656,15 +590,25 @@ export function buildContextFromState(profile, nutritionLogs, workoutLogs, worko
     weekType = weekNumber % 2 === 0 ? 'A' : 'B';
   }
 
-  // Build performance metrics
+  const cyclePosition = getCyclePosition(sp, today);
+
+  // Performance snapshot — one-liner for the static prompt.
+  // Full detail available via get_performance_summary() tool.
   const performance = buildPerformanceContext(completedDays, weightHistory, nutritionLogs, workoutSchedule, profile);
+  // Suppress snapshot for brand-new users — 0 scheduled sessions gives 100% completion
+  // which is misleading noise, not useful signal.
+  const performanceSnapshot = performance && performance.recentCompletion.scheduled > 0
+    ? `${performance.recentCompletion.percentage}% completion (14d) | Streak: ${performance.currentStreak}d | Weight: ${performance.weightChange2Weeks >= 0 ? '+' : ''}${performance.weightChange2Weeks}kg (2wk) | Avg ${performance.avgCalories || '?'} kcal/day`
+    : '';
 
   return {
     todayNutrition: todayNutrition.calories > 0 ? todayNutrition : null,
     todayWorkout,
     recentWorkouts: recentWorkouts || 'No recent workouts.',
-    weightTrend,
     weekType,
+    cyclePosition,
+    cycleText: formatCycle(profile),
+    performanceSnapshot,
     performance,
   };
 }
@@ -763,6 +707,11 @@ export function parseAICommands(content) {
     commands.push({ type: 'SET_SCHEDULE', data: bulkScheduleData });
   }
 
+  const cycleTemplateData = extractJSON(content, '[SET_CYCLE_TEMPLATE:');
+  if (cycleTemplateData) {
+    commands.push({ type: 'SET_CYCLE_TEMPLATE', data: cycleTemplateData });
+  }
+
   const profileData = extractJSON(content, '[UPDATE_PROFILE:');
   if (profileData) {
     commands.push({ type: 'UPDATE_PROFILE', data: profileData });
@@ -787,7 +736,7 @@ export function parseAICommands(content) {
 
   // Clean content - remove all command blocks
   let cleanContent = content;
-  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE', 'SET_TEMPLATE', 'LOG_MEASUREMENT'];
+  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'SET_CYCLE_TEMPLATE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE', 'SET_TEMPLATE', 'LOG_MEASUREMENT'];
 
   for (const cmd of commandPatterns) {
     const marker = `[${cmd}:`;

@@ -41,11 +41,12 @@ export const DEFAULT_USER_PROFILE = {
     labels: ['A', 'B'],     // names for each week/phase
     description: '',         // optional free text shown in Schedule header
   },
-  // Week templates for Coach to reference
-  weekTemplates: {
-    A: {},
-    B: {},
-  },
+  // Cycle template for Coach to reference and for the app to auto-fill the
+  // schedule. Keyed by 1-based cycle position ("1".."N"), each value is a day
+  // object ({ lunch: { type, notes }, evening, calories, protein, notes }).
+  // Position-based (not weekday-based) so any pattern works: A/B fortnightly,
+  // 8-day shift rotors, 4-on/4-off, etc.
+  cycleTemplate: {},
 };
 
 export const DEFAULT_AI_SETTINGS = {

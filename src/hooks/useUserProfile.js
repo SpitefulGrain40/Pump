@@ -3,16 +3,40 @@ import { DEFAULT_USER_PROFILE } from '../utils/dataSchemas';
 import { differenceInDays, parseISO } from 'date-fns';
 import { useEffect } from 'react';
 import { migrateGoal } from '../utils/goal';
+import { getPhaseLabel } from '../utils/schedule';
+
+// Convert the legacy weekday-based weekTemplates ({ A: {mon..sun}, B: {...} })
+// into a position-based cycleTemplate ({ "1": ..., "14": ... }). Position is
+// labelIndex * 7 + dayIndex + 1, which is exactly how A/B fortnights laid out.
+function migrateWeekTemplatesToCycle(profile) {
+  const wt = profile.weekTemplates || {};
+  const labels = profile.schedulePattern?.labels || ['A', 'B'];
+  const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  const cycleTemplate = {};
+  labels.forEach((label, li) => {
+    const week = wt[label];
+    if (!week) return;
+    days.forEach((day, di) => {
+      if (week[day]) cycleTemplate[String(li * 7 + di + 1)] = week[day];
+    });
+  });
+  return cycleTemplate;
+}
 
 export function useUserProfile() {
   const [profile, setProfile, reset] = useLocalStorage('pump-user-profile', DEFAULT_USER_PROFILE);
 
-  // Ensure weekTemplates exist (for profiles created before this feature)
+  // One-time migration: legacy weekTemplates → position-based cycleTemplate.
+  // Runs once (until cycleTemplate exists), drops weekTemplates afterwards.
   useEffect(() => {
-    if (!profile.weekTemplates && DEFAULT_USER_PROFILE.weekTemplates) {
-      setProfile(prev => ({ ...prev, weekTemplates: DEFAULT_USER_PROFILE.weekTemplates }));
-    }
-  }, [profile.weekTemplates, setProfile]);
+    if (profile.cycleTemplate) return;
+    setProfile(prev => {
+      const { weekTemplates, ...rest } = prev;
+      const hasLegacy = weekTemplates &&
+        Object.values(weekTemplates).some(w => w && Object.keys(w).length > 0);
+      return { ...rest, cycleTemplate: hasLegacy ? migrateWeekTemplatesToCycle(prev) : {} };
+    });
+  }, [profile.cycleTemplate, setProfile]);
 
   // Migrate old weekAStart format to new schedulePattern shape
   useEffect(() => {
@@ -85,23 +109,19 @@ export function useUserProfile() {
     return getWeekTypeForDate(new Date());
   };
 
-  // Returns the phase label (e.g. 'A', 'B', 'On', 'Off') for any given date
+  // Returns the phase label (e.g. 'A', 'B', 'On', 'Off') for any given date.
+  // Splits the cycle evenly across labels.length phases, so an 8-day rotor with
+  // ['On','Off'] gets 4 days each — not the old "divide by 7" weekly assumption.
   const getWeekTypeForDate = (date) => {
     const sp = profile.schedulePattern;
 
-    // New format
     if (sp?.type && sp?.cycleStart && sp?.labels?.length > 0) {
-      const startDate = parseISO(sp.cycleStart);
-      const daysDiff = differenceInDays(date, startDate);
-      const positionInCycle = ((daysDiff % sp.cycleLength) + sp.cycleLength) % sp.cycleLength;
-      const weekIndex = Math.floor(positionInCycle / 7);
-      return sp.labels[weekIndex] ?? sp.labels[0];
+      return getPhaseLabel(sp, date);
     }
 
     // Legacy format: weekAStart
     if (sp?.weekAStart) {
-      const startDate = parseISO(sp.weekAStart);
-      const daysDiff = differenceInDays(date, startDate);
+      const daysDiff = differenceInDays(date, parseISO(sp.weekAStart));
       const weekNumber = Math.floor(daysDiff / 7);
       return weekNumber % 2 === 0 ? 'A' : 'B';
     }

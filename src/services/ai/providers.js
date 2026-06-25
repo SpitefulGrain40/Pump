@@ -7,6 +7,74 @@ function sanitizeKey(key) {
   return key.trim().replace(/[^\x20-\x7E]/g, '');
 }
 
+// Client-side tools Coach can call to look up historical data on demand.
+// The frontend executes these (localStorage reads) and returns results so
+// Claude can answer with real data rather than guessing.
+export const COACH_TOOLS = [
+  {
+    name: 'get_nutrition_history',
+    description: "Get the user's daily calorie and protein totals for the last N days. Call when the user asks about food patterns, calorie averages, or nutrition trends. Returns totals only — call get_meal_items for the actual foods eaten on a specific date.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: 'Days to look back (default 14, max 90)' }
+      }
+    }
+  },
+  {
+    name: 'get_meal_items',
+    description: "Get the individual food items logged on a specific date. Call when the user wants to re-log the same meal as a previous day, asks what they ate on a specific day, or needs food-level detail for one date.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'Date in YYYY-MM-DD format' }
+      },
+      required: ['date']
+    }
+  },
+  {
+    name: 'get_workout_history',
+    description: "Get the user's completed workout sessions with exercises, sets, reps, and weights. Call when asked about past workouts, exercise history, or progress on a specific movement.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: 'Days to look back (default 30, max 180)' },
+        exercise: { type: 'string', description: 'Optional: filter to sessions containing this exercise name' }
+      }
+    }
+  },
+  {
+    name: 'get_pr_records',
+    description: "Get the user's personal records — best weight lifted per exercise. Call when asked about PRs, bests, or strength history.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        exercise: { type: 'string', description: 'Optional: filter to a specific exercise name' }
+      }
+    }
+  },
+  {
+    name: 'get_weight_history',
+    description: "Get the user's body weight entries over time. Call when asked about weight trend, rate of loss/gain, or specific past weigh-ins.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: 'Days to look back (default 30, max 365)' }
+      }
+    }
+  },
+  {
+    name: 'get_workout_templates',
+    description: "Get the full exercise lists for all workout templates (push, pull, legs, push_b, etc.). Call when the user asks what's in a template, wants to compare variants, or when you need to suggest specific exercise swaps.",
+    input_schema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_performance_summary',
+    description: "Get a 2-week performance summary: workout completion rate, current streak, weight change, and average calories/protein. Call when the user asks about overall progress, consistency, or whether they're on track.",
+    input_schema: { type: 'object', properties: {} }
+  }
+];
+
 export async function sendToOpenRouter(apiKey, model, messages, systemPrompt) {
   const cleanKey = sanitizeKey(apiKey);
   const formattedMessages = messages.map((m) => {
@@ -96,48 +164,75 @@ export async function sendToAnthropic(apiKey, model, messages, systemPrompt, opt
     ];
   }
 
-  // Anthropic server-side web search tool. Lets Coach look up info (food
-  // macros, exercise form, etc.) without the user pasting URLs. $0.01/search.
-  // Caller passes opts.webSearch: true to enable.
-  if (opts.webSearch) {
-    body.tools = [
-      { type: 'web_search_20250305', name: 'web_search', max_uses: 3 },
+  // Combine server-side web search with client-side data tools.
+  // Web search is handled by Anthropic's servers (transparent to our loop).
+  // Client tools trigger stop_reason: tool_use and need a tool_result reply.
+  const toolsList = [];
+  if (opts.webSearch) toolsList.push({ type: 'web_search_20250305', name: 'web_search', max_uses: 3 });
+  if (opts.tools?.length) toolsList.push(...opts.tools);
+  if (toolsList.length) body.tools = toolsList;
+
+  const headers = {
+    'x-api-key': cleanKey,
+    'anthropic-version': '2023-06-01',
+    'Content-Type': 'application/json',
+    'anthropic-dangerous-direct-browser-access': 'true',
+  };
+
+  // Tool-use loop: keep sending until stop_reason is end_turn.
+  // Client tools (our data tools) return stop_reason: tool_use and need a
+  // tool_result reply. Web search is server-side and transparent to this loop.
+  let currentMessages = [...formattedMessages];
+  const totalUsage = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
+
+  while (true) {
+    const response = await fetch(ANTHROPIC_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...body, messages: currentMessages }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error?.message || `Anthropic error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    totalUsage.input += data.usage?.input_tokens || 0;
+    totalUsage.output += data.usage?.output_tokens || 0;
+    totalUsage.cacheRead += data.usage?.cache_read_input_tokens || 0;
+    totalUsage.cacheCreate += data.usage?.cache_creation_input_tokens || 0;
+
+    if (data.stop_reason !== 'tool_use' || !opts.toolExecutor) {
+      const textBlocks = (data.content || []).filter((b) => b.type === 'text');
+      const content = textBlocks.map((b) => b.text).join('').trim();
+      return { content, usage: totalUsage, stopReason: data.stop_reason };
+    }
+
+    // Execute client-side tool calls and loop back
+    const toolResults = [];
+    for (const block of data.content) {
+      if (block.type === 'tool_use') {
+        let result;
+        try {
+          result = opts.toolExecutor(block.name, block.input);
+        } catch (e) {
+          result = { error: e.message };
+        }
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: JSON.stringify(result, null, 2),
+        });
+      }
+    }
+
+    currentMessages = [
+      ...currentMessages,
+      { role: 'assistant', content: data.content },
+      { role: 'user', content: toolResults },
     ];
   }
-
-  const response = await fetch(ANTHROPIC_URL, {
-    method: 'POST',
-    headers: {
-      'x-api-key': cleanKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error?.message || `Anthropic error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  // Web search and tool use mean the response can have multiple content
-  // blocks (text, server_tool_use, web_search_tool_result). Concatenate all
-  // text blocks — old `data.content?.[0]?.text` only read the first block
-  // and would drop the actual answer when a tool ran first.
-  const textBlocks = (data.content || []).filter((b) => b.type === 'text');
-  const content = textBlocks.map((b) => b.text).join('').trim();
-  return {
-    content,
-    usage: {
-      input: data.usage?.input_tokens || 0,
-      output: data.usage?.output_tokens || 0,
-      cacheRead: data.usage?.cache_read_input_tokens || 0,
-      cacheCreate: data.usage?.cache_creation_input_tokens || 0,
-    },
-    stopReason: data.stop_reason,
-  };
 }
 
 export async function sendToCLI(model, messages, systemPrompt) {
@@ -156,20 +251,24 @@ export async function sendToCLI(model, messages, systemPrompt) {
   return { content: data.content || '', usage: { input: 0, output: 0 } };
 }
 
-export async function sendMessage(settings, messages, systemPrompt) {
+export async function sendMessage(settings, messages, systemPrompt, opts = {}) {
   const { provider, openrouterKey, anthropicKey, model, anthropicModel, enableWebSearch } = settings;
 
   if (provider === 'cli') {
+    // CLI proxy is one-shot — no tool-use loop support
     return sendToCLI(anthropicModel || 'claude-sonnet-4-6', messages, systemPrompt);
   } else if (provider === 'openrouter') {
     if (!openrouterKey) throw new Error('OpenRouter API key not configured');
+    // OpenRouter tool support varies by model — skip for now
     return sendToOpenRouter(openrouterKey, model, messages, systemPrompt);
   } else {
     if (!anthropicKey) throw new Error('Anthropic API key not configured');
-    // Web search defaults ON for Anthropic provider — costs ~$0.01/search,
-    // dramatically reduces the need for users to paste URLs. Settings can flip off.
     const webSearch = enableWebSearch !== false;
-    return sendToAnthropic(anthropicKey, anthropicModel, messages, systemPrompt, { webSearch });
+    return sendToAnthropic(anthropicKey, anthropicModel, messages, systemPrompt, {
+      webSearch,
+      tools: opts.tools,
+      toolExecutor: opts.toolExecutor,
+    });
   }
 }
 

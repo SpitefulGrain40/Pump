@@ -9,6 +9,7 @@ import { useUserProfile } from '../hooks/useUserProfile';
 import { resolveBodyFat, getNavyBodyFat } from '../utils/calculations';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useWorkoutSchedule, useWorkoutLogs } from '../hooks/useWorkoutLogs';
+import { resolveDaySchedule } from '../utils/schedule';
 import { useWeightHistory } from '../hooks/useWeightHistory';
 import { useBackup } from '../hooks/useSettings';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -36,7 +37,7 @@ const chartOptions = {
 export default function Dashboard({ onNavigate, onOpenCoach }) {
   const { profile, getProgress, getCalorieTarget, getProteinTarget, getWeightLost } = useUserProfile();
   const { getTodaysTotals, getTodaysMeals, removeMeal, getDailyTotals } = useNutritionLogs();
-  const { schedule, getWorkoutForDate, getWorkoutTemplate } = useWorkoutSchedule();
+  const { schedule, getWorkoutTemplate } = useWorkoutSchedule();
   const { getTodaysWorkout, getAllPRs } = useWorkoutLogs();
   const { getLatestWeight, entries: weightEntries } = useWeightHistory();
   const { entries: measurementHistory } = useMeasurementHistory();
@@ -84,7 +85,8 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
   const weightLost = getWeightLost ? getWeightLost() : 0;
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
-  const todaySchedule = schedule[todayStr];
+  // Explicit override wins, else the day generated from the training cycle.
+  const todaySchedule = resolveDaySchedule(profile, schedule, todayStr);
   const defaultCalorieTarget = getCalorieTarget() || 2300;
   const defaultProteinTarget = getProteinTarget() || 180;
   const calorieTarget = todaySchedule?.calories || defaultCalorieTarget;
@@ -93,7 +95,7 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
   // Schedule entries come in two shapes: a plain type string ('push') from the
   // default generator, or an object ({ lunch: { type, notes }, evening: {...} })
   // from Coach/the Schedule editor. Normalise to a type string + optional notes.
-  const rawTodaySchedule = getWorkoutForDate(new Date());
+  const rawTodaySchedule = todaySchedule;
   const todayWorkoutType = typeof rawTodaySchedule === 'string'
     ? rawTodaySchedule
     : (rawTodaySchedule?.lunch?.type ?? rawTodaySchedule?.evening?.type ?? null);
