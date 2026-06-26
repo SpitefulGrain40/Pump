@@ -99,35 +99,7 @@ export default function MealLogger({ onClose }) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {/* Photo buttons */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isAnalyzing || estimating}
-              className="flex-1 flex items-center justify-center gap-2 bg-surface-light py-2.5 rounded-lg text-sm disabled:opacity-50"
-            >
-              {isAnalyzing ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
-              {isAnalyzing ? 'Analyzing...' : 'Photo'}
-            </button>
-            <button
-              onClick={() => { fileInputRef.current.removeAttribute('capture'); fileInputRef.current?.click(); }}
-              disabled={isAnalyzing || estimating}
-              className="flex-1 flex items-center justify-center gap-2 bg-surface-light py-2.5 rounded-lg text-sm disabled:opacity-50"
-            >
-              <Image size={16} />
-              Gallery
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handlePhotoCapture}
-              className="hidden"
-            />
-          </div>
-
-          {/* Description input */}
+          {/* Description input row */}
           <div className="flex gap-2">
             <input
               ref={draftInputRef}
@@ -136,9 +108,25 @@ export default function MealLogger({ onClose }) {
               value={draft}
               onChange={e => setDraft(e.target.value)}
               onKeyDown={handleDraftKey}
-              disabled={estimating}
+              disabled={estimating || isAnalyzing}
               className="flex-1 bg-bg border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-accent disabled:opacity-50"
             />
+            <button
+              onClick={() => { fileInputRef.current.setAttribute('capture', 'environment'); fileInputRef.current?.click(); }}
+              disabled={isAnalyzing || estimating}
+              className="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-light text-text-muted hover:text-text disabled:opacity-40 shrink-0"
+              title="Take photo"
+            >
+              {isAnalyzing ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+            </button>
+            <button
+              onClick={() => { fileInputRef.current.removeAttribute('capture'); fileInputRef.current?.click(); }}
+              disabled={isAnalyzing || estimating}
+              className="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-light text-text-muted hover:text-text disabled:opacity-40 shrink-0"
+              title="Choose from gallery"
+            >
+              <Image size={16} />
+            </button>
             <button
               onClick={handleEstimate}
               disabled={!draft.trim() || estimating}
@@ -149,6 +137,13 @@ export default function MealLogger({ onClose }) {
                 : <Check size={16} />}
             </button>
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handlePhotoCapture}
+            className="hidden"
+          />
 
           {error && (
             <div className="bg-danger/20 text-danger text-sm p-3 rounded-lg">{error}</div>
