@@ -290,9 +290,12 @@ async function estimateItem(description) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: HAIKU_ANTHROPIC, max_tokens: 80, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: HAIKU_ANTHROPIC, max_tokens: 200, messages: [{ role: 'user', content: prompt }] }),
     });
-    if (!res.ok) throw new Error('API request failed');
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.error?.message || `API error ${res.status}`);
+    }
     const data = await res.json();
     return parseSingleItem(data.content?.[0]?.text || '');
   }
