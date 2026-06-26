@@ -250,7 +250,7 @@ function fileToBase64(file) {
 }
 
 // Haiku 4.5 for both calls — fast, cheap, sufficient for nutrition estimation.
-const HAIKU_ANTHROPIC   = 'claude-haiku-4-5';
+const HAIKU_ANTHROPIC   = 'claude-haiku-4-5-20251001';
 const HAIKU_OPENROUTER  = 'anthropic/claude-haiku-4-5-20251001';
 
 const CLI_PROXY_URL = 'http://localhost:3141/chat';
