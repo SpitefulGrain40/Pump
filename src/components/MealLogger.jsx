@@ -253,9 +253,12 @@ function fileToBase64(file) {
 const HAIKU_ANTHROPIC   = 'claude-haiku-4-5';
 const HAIKU_OPENROUTER  = 'anthropic/claude-haiku-4-5-20251001';
 
+const CLI_PROXY_URL = 'http://localhost:3141/chat';
+
 function getApiConfig() {
   const settings = JSON.parse(localStorage.getItem('pump-ai-settings') || '{}');
   const provider = settings.provider || 'openrouter';
+  if (provider === 'cli') return { provider, apiKey: null };
   const apiKey = provider === 'openrouter' ? settings.openrouterKey : settings.anthropicKey;
   if (!apiKey) throw new Error('API key not configured');
   return { provider, apiKey };
@@ -265,7 +268,16 @@ async function estimateItem(description) {
   const { provider, apiKey } = getApiConfig();
   const prompt = `Estimate calories and protein for: "${description}". Return ONLY valid JSON — no other text: {"name": "clean item name", "calories": 123, "protein": 12}`;
 
-  if (provider === 'openrouter') {
+  if (provider === 'cli') {
+    const res = await fetch(CLI_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], systemPrompt: '', model: 'claude-haiku-4-5-20251001' }),
+    });
+    if (!res.ok) throw new Error('CLI proxy error — is it running? (node scripts/pump-cli-proxy.cjs)');
+    const data = await res.json();
+    return parseSingleItem(data.content || '');
+  } else if (provider === 'openrouter') {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'pump-fitness-app' },
@@ -288,6 +300,7 @@ async function estimateItem(description) {
 
 async function analyzePhoto(base64) {
   const { provider, apiKey } = getApiConfig();
+  if (provider === 'cli') throw new Error('Photo analysis not supported with CLI proxy — switch to Anthropic or OpenRouter in Settings');
   const prompt = `Analyze this food photo and estimate calories and protein for each item. Return ONLY valid JSON:
 {"items": [{"name": "item name", "calories": 123, "protein": 12}], "totals": {"calories": 123, "protein": 12}}`;
 
