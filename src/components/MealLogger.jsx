@@ -10,9 +10,10 @@ export default function MealLogger({ onClose }) {
   const draftInputRef = useRef(null);
 
   const [items, setItems] = useState([]);
+  const [pendingItems, setPendingItems] = useState([]); // photo items awaiting note + AI call
+  const [confirmingIndex, setConfirmingIndex] = useState(null);
   const [draft, setDraft] = useState('');
   const [estimating, setEstimating] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState(null);
   const [editField, setEditField] = useState(null); // { index, field }
   const [editValue, setEditValue] = useState('');
@@ -59,26 +60,41 @@ export default function MealLogger({ onClose }) {
     setEditField(null);
   };
 
+  const updatePendingNote = (index, value) => {
+    setPendingItems(prev => prev.map((item, i) => i === index ? { ...item, note: value } : item));
+  };
+
+  const confirmPortion = async (index) => {
+    const item = pendingItems[index];
+    if (!item.note.trim() || confirmingIndex === index) return;
+    setConfirmingIndex(index);
+    setError(null);
+    try {
+      const result = await analyzePhotoWithPortion(item.base64, item.note.trim());
+      setItems(prev => [...prev, result]);
+      setPendingItems(prev => prev.filter((_, i) => i !== index));
+    } catch (err) {
+      setError(err.message || 'Failed to analyze photo');
+    } finally {
+      setConfirmingIndex(null);
+    }
+  };
+
+  const dismissPending = (index) => {
+    setPendingItems(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handlePhotoCapture = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!isConfigured()) { setError('Configure AI provider in Settings first'); return; }
-    setIsAnalyzing(true);
     setError(null);
     try {
       const base64 = await fileToBase64(file);
-      const response = await analyzePhoto(base64);
-      if (response.items?.length > 0) {
-        setItems(prev => [...prev, ...response.items.map(item => ({
-          name: item.name || '',
-          calories: item.calories || 0,
-          protein: item.protein || 0,
-        }))]);
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to analyze photo');
+      setPendingItems(prev => [...prev, { base64, note: '' }]);
+    } catch {
+      setError('Failed to read photo');
     } finally {
-      setIsAnalyzing(false);
       e.target.value = '';
     }
   };
@@ -108,20 +124,20 @@ export default function MealLogger({ onClose }) {
               value={draft}
               onChange={e => setDraft(e.target.value)}
               onKeyDown={handleDraftKey}
-              disabled={estimating || isAnalyzing}
+              disabled={estimating}
               className="flex-1 bg-bg border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-accent disabled:opacity-50"
             />
             <button
               onClick={() => { fileInputRef.current.setAttribute('capture', 'environment'); fileInputRef.current?.click(); }}
-              disabled={isAnalyzing || estimating}
+              disabled={estimating}
               className="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-light text-text-muted hover:text-text disabled:opacity-40 shrink-0"
               title="Take photo"
             >
-              {isAnalyzing ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+              <Camera size={16} />
             </button>
             <button
               onClick={() => { fileInputRef.current.removeAttribute('capture'); fileInputRef.current?.click(); }}
-              disabled={isAnalyzing || estimating}
+              disabled={estimating}
               className="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-light text-text-muted hover:text-text disabled:opacity-40 shrink-0"
               title="Choose from gallery"
             >
@@ -144,6 +160,44 @@ export default function MealLogger({ onClose }) {
             onChange={handlePhotoCapture}
             className="hidden"
           />
+
+          {/* Pending photo items — awaiting portion note + AI call */}
+          {pendingItems.length > 0 && (
+            <div className="space-y-2">
+              {pendingItems.map((item, i) => (
+                <div key={i} className="bg-bg rounded-lg p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Camera size={13} className="text-text-muted shrink-0" />
+                    <span className="text-xs text-text-muted flex-1">Photo — how much did you have?</span>
+                    <button onClick={() => dismissPending(i)} className="text-text-muted hover:text-danger">
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. half a pack, a big bowl, 2 scoops"
+                      value={item.note}
+                      onChange={e => updatePendingNote(i, e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && item.note.trim()) confirmPortion(i); }}
+                      autoFocus={i === 0}
+                      disabled={confirmingIndex === i}
+                      className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-accent disabled:opacity-50"
+                    />
+                    <button
+                      onClick={() => confirmPortion(i)}
+                      disabled={!item.note.trim() || confirmingIndex === i}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg bg-accent text-bg disabled:opacity-40 shrink-0"
+                    >
+                      {confirmingIndex === i
+                        ? <Loader2 size={14} className="animate-spin" />
+                        : <Check size={14} />}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {error && (
             <div className="bg-danger/20 text-danger text-sm p-3 rounded-lg">{error}</div>
@@ -296,11 +350,10 @@ async function estimateItem(description) {
   }
 }
 
-async function analyzePhoto(base64) {
+async function analyzePhotoWithPortion(base64, note) {
   const { provider, apiKey } = getApiConfig();
   if (provider === 'cli') throw new Error('Photo analysis not supported with CLI proxy — switch to Anthropic or OpenRouter in Settings');
-  const prompt = `Analyze this food photo and estimate calories and protein for each item. Return ONLY valid JSON:
-{"items": [{"name": "item name", "calories": 123, "protein": 12}], "totals": {"calories": 123, "protein": 12}}`;
+  const prompt = `This is a food photo. The user says they had: "${note}". Based on the food shown and the stated portion, estimate total calories and protein. Return ONLY valid JSON — no other text: {"name": "food name", "calories": 123, "protein": 12}`;
 
   if (provider === 'openrouter') {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -309,12 +362,12 @@ async function analyzePhoto(base64) {
       body: JSON.stringify({
         model: HAIKU_OPENROUTER,
         messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: base64 } }] }],
-        max_tokens: 500,
+        max_tokens: 150,
       }),
     });
     if (!res.ok) throw new Error('API request failed');
     const data = await res.json();
-    return parsePhotoResponse(data.choices?.[0]?.message?.content || '');
+    return parseSingleItem(data.choices?.[0]?.message?.content || '');
   } else {
     const base64Data = base64.split(',')[1];
     const mediaType = base64.match(/data:([^;]+);/)?.[1] || 'image/jpeg';
@@ -322,13 +375,16 @@ async function analyzePhoto(base64) {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
       body: JSON.stringify({
-        model: HAIKU_ANTHROPIC, max_tokens: 500,
+        model: HAIKU_ANTHROPIC, max_tokens: 150,
         messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } }] }],
       }),
     });
-    if (!res.ok) throw new Error('API request failed');
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.error?.message || `API error ${res.status}`);
+    }
     const data = await res.json();
-    return parsePhotoResponse(data.content?.[0]?.text || '');
+    return parseSingleItem(data.content?.[0]?.text || '');
   }
 }
 
@@ -338,10 +394,4 @@ function parseSingleItem(content) {
   const parsed = JSON.parse(match[0]);
   if (!parsed.name || parsed.calories === undefined) throw new Error('Invalid response');
   return { name: parsed.name, calories: parseInt(parsed.calories) || 0, protein: parseInt(parsed.protein) || 0 };
-}
-
-function parsePhotoResponse(content) {
-  const match = content.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error('Could not parse response');
-  return JSON.parse(match[0]);
 }
