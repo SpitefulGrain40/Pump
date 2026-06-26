@@ -1,4 +1,4 @@
-import { format, parseISO, differenceInDays, subDays } from 'date-fns';
+import { format, parseISO, differenceInDays, subDays, addDays } from 'date-fns';
 import { getCyclePosition, getPhaseLabel, getPhaseLabelByPosition, resolveDaySchedule } from '../../utils/schedule';
 
 // Build memory section for system prompt
@@ -63,8 +63,7 @@ function formatMemories(memories) {
 }
 
 // Compact, position-based view of the user's cycle for the Coach prompt.
-// One line per cycle position so Coach sees the whole pattern at a glance,
-// regardless of weekday — the app handles laying it onto the calendar.
+// Shows weekday so Coach knows which real day each position maps to.
 function formatCycle(profile) {
   const sp = profile.schedulePattern;
   const ct = profile.cycleTemplate;
@@ -72,6 +71,7 @@ function formatCycle(profile) {
 
   const len = sp?.cycleLength || Object.keys(ct).length;
   const todayPos = getCyclePosition(sp, new Date());
+  const cycleStart = sp?.cycleStart ? parseISO(sp.cycleStart) : null;
   const lines = [];
 
   for (let p = 1; p <= len; p++) {
@@ -82,7 +82,9 @@ function formatCycle(profile) {
     const notes = day?.lunch?.notes ? ` (${day.lunch.notes})` : '';
     const cals = day?.calories ? ` | ${day.calories} kcal` : '';
     const marker = p === todayPos ? '   ← today' : '';
-    lines.push(`${String(p).padStart(2)} [${label}] ${type}${evening}${notes}${cals}${marker}`);
+    const weekday = cycleStart ? format(addDays(cycleStart, p - 1), 'EEE') : '';
+    const weekdayStr = weekday ? ` ${weekday}` : '';
+    lines.push(`${String(p).padStart(2)}${weekdayStr} [${label}] ${type}${evening}${notes}${cals}${marker}`);
   }
   return lines.join('\n');
 }
@@ -483,18 +485,9 @@ When the user wants to log or update data, include these commands in your respon
 ### Scheduling
 The schedule is driven by the user's TRAINING CYCLE (above). The app auto-fills every calendar date from it, so you almost never set individual dates.
 
-- **Set/replace the whole cycle** with [SET_CYCLE_TEMPLATE: {...}] — keyed by cycle POSITION ("1".."${cycleLength}"), not weekday. One atomic block. Use this when the user describes or changes their recurring routine:
-[SET_CYCLE_TEMPLATE: {
-  "1": {"lunch": {"type": "push", "notes": "Push A"}, "calories": 3200},
-  "2": {"lunch": {"type": "pull", "notes": "Pull A"}, "calories": 3200},
-  "3": {"lunch": {"type": "legs", "notes": "Legs A"}, "calories": 3200},
-  "4": {"lunch": {"type": "rest"}},
-  "5": {"lunch": {"type": "push", "notes": "Push B"}, "calories": 3000},
-  "6": {"lunch": {"type": "pull", "notes": "Pull B"}, "calories": 3000},
-  "7": {"lunch": {"type": "legs", "notes": "Legs B"}, "calories": 3000},
-  "8": {"lunch": {"type": "rest"}}
-}]
-  Each position is a day object: lunch {type, notes}, optional evening {type, notes}, calories, protein, notes. Keep notes short (under 10 words).
+- **Set/replace the whole cycle** with [SET_CYCLE_TEMPLATE: {...}] — keyed by cycle POSITION ("1".."${cycleLength}"). CRITICAL: check the TRAINING CYCLE table above first — each position has a weekday label (Mon/Tue/etc.) so you know exactly which real day you're assigning. Build the positions from what the user tells you; do not assume a split.
+  Each position: {"lunch": {"type": "...", "notes": "short note"}, "evening": {"type": "..."}, "calories": 2200, "protein": 185}
+  evening is optional. notes must be under 10 words. Only use activity types the user actually has.
 
 - **One-off override** for a specific date (travel, illness) with [SET_SCHEDULE: {"2026-05-08": {"lunch": {"type": "rest"}, "notes": "Travelling"}}] — same day-object shape, keyed by date. Only for exceptions; don't rebuild the whole calendar this way.
 
