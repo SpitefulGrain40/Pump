@@ -65,7 +65,7 @@ src/
 │   ├── Progress.jsx           # Goal-aware headline metric + secondary strip, calories, PRs, consistency grid
 │   ├── Settings.jsx           # Profile, Goal (intent + metric + targets), AI config, backup/restore
 │   ├── Nutrition.jsx          # Full nutrition history, date navigation, 7-day averages
-│   ├── MealLogger.jsx         # Quick meal log modal, photo analysis
+│   ├── MealLogger.jsx         # Meal Builder modal: describe items → AI estimates → log as one meal; photo + portion note
 │   ├── WorkoutLogger.jsx      # Exercise logger, PR detection, mid-workout Coach
 │   ├── WeightModal.jsx        # Quick weigh-in
 │   ├── MeasurementModal.jsx   # Quick measurement snapshot (waist/neck/hip/manual bf)
@@ -237,6 +237,14 @@ Coach embeds structured commands in responses which the frontend parses and exec
 ```
 Notes fields must be short (under 10 words) — verbose notes truncate the JSON.
 
+### Set Cycle Start
+```
+[SET_CYCLE_START: {"date": "YYYY-MM-DD"}]
+```
+- Moves the `cycleStart` anchor in `schedulePattern.cycleStart` without touching `cycleTemplate`
+- Use this — never `SET_CYCLE_TEMPLATE` — when the user says "start Week A from [date]", "reset my cycle to Monday", or asks to realign the A/B schedule
+- Safe: only merges `cycleStart` into `schedulePattern`; all workout types and day definitions are preserved
+
 ### Update Profile
 ```
 [UPDATE_PROFILE: {"tdee": 2723, "calorieTarget": {"min": 2000, "max": 2200}}]
@@ -299,7 +307,7 @@ Bottom-sheet modal anchored `absolute bottom-0` (not flex-based) so `maxHeight: 
 Jina AI (`https://r.jina.ai/{url}`) converts any URL to clean text, injected into the message before sending. Free, no API key required. Up to 3 URLs per message.
 
 ### CLI Proxy
-Routes Coach through the local `claude` CLI — zero API token cost for development. Uses `--bare --no-session-persistence --tools ""` flags to prevent CLAUDE.md discovery and session bleed.
+Routes Coach (and Meal Builder text estimates) through the local `claude` CLI — zero API token cost for development. Uses `--print --no-session-persistence --tools "" --output-format text` flags. Photo analysis is not supported via CLI proxy (no multimodal support); switch to Anthropic or OpenRouter for photo logging. The proxy runs with `cwd: os.tmpdir()` to prevent CLAUDE.md auto-discovery (can't use `--bare` as it disables OAuth/keychain auth).
 
 ---
 
@@ -359,7 +367,7 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD-HHMMSS`, date **and
 
 ---
 
-## Current State (as of 2026-06-25)
+## Current State (as of 2026-06-26)
 
 ### Completed & Working
 - **Goal-driven dashboard** — two-axis model: training **intent** (cut/recomp/bulk/maintain) + **primary metric** (weight/lean-mass/body-fat/waist/strength). GoalCard hero on Home + Progress, secondary-metric strip, per-metric optional target+date.
@@ -367,9 +375,11 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD-HHMMSS`, date **and
 - Coach adapts nutrition behaviour to intent (deficit/surplus/protein emphasis) + GOAL block in system prompt
 - Full onboarding wizard (goal step; seeds starting weight + first measurement snapshot)
 - **Flexible cycle scheduling** — position-based `cycleTemplate` replaces weekday-anchored `weekTemplates`. Supports any repeating pattern: 8-day shift rotors, A/B fortnights, 4-on/4-off, custom. `schedule.js` utility handles all cycle maths (rotor-safe phase labels, explicit overrides win). `SET_CYCLE_TEMPLATE` command writes atomically (no A/B overwrite bug). Auto-migrates legacy profiles on load.
+- **SET_CYCLE_START command** — Coach can shift the A/B cycle anchor (`schedulePattern.cycleStart`) without touching `cycleTemplate`. Prevents Coach from mangling workout day definitions when the user asks to realign the schedule to a different date.
 - **Custom workout template types** — create `push_b`, `pull_a`, `legs_b` etc. via Coach; Schedule tiles inherit emoji/colour from base type automatically.
 - Workout logger with set/rep/weight tracking, PR detection, draft auto-save, skip exercise
-- Nutrition logging (manual + photo analysis via Haiku), daily targets, 7-day averages
+- **Meal Builder** (`MealLogger.jsx`) — description-first log flow: type a food item, hit ✓, Haiku estimates cal/protein, add next item, repeat, then "Log Meal" pushes everything as one entry. Replaces the old single-item Coach conversation approach. Supports Anthropic, OpenRouter, and CLI proxy providers.
+- **Photo + portion note logging** — camera icon or gallery picker queues a pending card with a free-text "How much did you have?" field. On confirm, one multimodal Haiku call with image + portion note returns name, calories, protein. Works for both nutrition labels and meal photos. CLI proxy not supported for photo calls (no multimodal).
 - **Coach AI with client-side tool use** (Anthropic provider) — 7 on-demand tools replace static data dumps in the system prompt (~40% prompt reduction): `get_nutrition_history`, `get_meal_items`, `get_workout_history`, `get_pr_records`, `get_weight_history`, `get_workout_templates`, `get_performance_summary`. Coach fetches only what the conversation needs.
 - Coach AI: command execution, image attachments (camera + gallery), URL fetching, web search, chat search
 - **Quick prompt pills always visible** (horizontal scroll strip) — not just on empty chat
@@ -415,7 +425,7 @@ The day boundary marker is injected based on message timestamps. If old messages
 Coach wrote verbose notes. Check browser console for JSON parse errors. Notes must be under 10 words.
 
 ### CLI proxy acting as Claude Code assistant
-Proxy must run with `--bare --no-session-persistence` flags. Restart the proxy — old version without `--bare` may still be running.
+Proxy runs with `cwd: os.tmpdir()` to prevent CLAUDE.md auto-discovery — it cannot use `--bare` because that disables OAuth/keychain auth. If Coach responses bleed in Pump-specific context, ensure you're running the latest `scripts/pump-cli-proxy.cjs` and restart the proxy.
 
 ### Android not getting updates
 Hard-refresh Chrome (Settings → Privacy → Clear browsing data → Cached images). The service worker cache name changes on each deploy, which should auto-update on next load.
