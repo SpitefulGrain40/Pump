@@ -44,10 +44,11 @@ const CLAUDE_PATH = resolveClaudePath();
 const SAFE_CWD = os.tmpdir();
 
 const server = http.createServer((req, res) => {
-  // CORS headers so the browser app can call this
+  // CORS + Private Network Access headers (required for HTTPS pages calling http://localhost)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
