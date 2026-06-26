@@ -485,6 +485,8 @@ When the user wants to log or update data, include these commands in your respon
 ### Scheduling
 The schedule is driven by the user's TRAINING CYCLE (above). The app auto-fills every calendar date from it, so you almost never set individual dates.
 
+- **Shift the cycle anchor** when the user wants A/B to restart from a different date: [SET_CYCLE_START: {"date": "YYYY-MM-DD"}]. This moves the reference point WITHOUT touching the cycle template. Use this — never SET_CYCLE_TEMPLATE — when the user says "start Week A from [date]", "reset the cycle to Monday", or asks to realign the schedule.
+
 - **Set/replace the whole cycle** with [SET_CYCLE_TEMPLATE: {...}] — keyed by cycle POSITION ("1".."${cycleLength}"). CRITICAL: check the TRAINING CYCLE table above first — each position has a weekday label (Mon/Tue/etc.) so you know exactly which real day you're assigning. Build the positions from what the user tells you; do not assume a split.
   Each position: {"lunch": {"type": "...", "notes": "short note"}, "evening": {"type": "..."}, "calories": 2200, "protein": 185}
   evening is optional. notes must be under 10 words. Only use activity types the user actually has.
@@ -700,6 +702,11 @@ export function parseAICommands(content) {
     commands.push({ type: 'SET_SCHEDULE', data: bulkScheduleData });
   }
 
+  const cycleStartData = extractJSON(content, '[SET_CYCLE_START:');
+  if (cycleStartData) {
+    commands.push({ type: 'SET_CYCLE_START', data: cycleStartData });
+  }
+
   const cycleTemplateData = extractJSON(content, '[SET_CYCLE_TEMPLATE:');
   if (cycleTemplateData) {
     commands.push({ type: 'SET_CYCLE_TEMPLATE', data: cycleTemplateData });
@@ -729,7 +736,7 @@ export function parseAICommands(content) {
 
   // Clean content - remove all command blocks
   let cleanContent = content;
-  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'SET_CYCLE_TEMPLATE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE', 'SET_TEMPLATE', 'LOG_MEASUREMENT'];
+  const commandPatterns = ['LOG_MEAL', 'LOG_WEIGHT', 'LOG_WORKOUT', 'UPDATE_SCHEDULE', 'SET_SCHEDULE', 'SET_CYCLE_START', 'SET_CYCLE_TEMPLATE', 'UPDATE_PROFILE', 'SAVE_MEMORY', 'FORGET_MEMORY', 'UPDATE_TEMPLATE', 'SET_TEMPLATE', 'LOG_MEASUREMENT'];
 
   for (const cmd of commandPatterns) {
     const marker = `[${cmd}:`;

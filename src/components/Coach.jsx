@@ -248,6 +248,9 @@ export default function Coach() {
           const dates = Object.keys(cmd.data);
           setSchedule(prev => ({ ...prev, ...cmd.data }));
           executed.push(`✓ Schedule updated: ${dates.length} days set`);
+        } else if (cmd.type === 'SET_CYCLE_START' && cmd.data?.date) {
+          updateProfile({ schedulePattern: { ...profile.schedulePattern, cycleStart: cmd.data.date } });
+          executed.push(`✓ Cycle start moved to ${cmd.data.date}`);
         } else if (cmd.type === 'SET_CYCLE_TEMPLATE' && cmd.data) {
           // Atomic write of the whole position-based cycle (no merge — replaces it)
           updateProfile({ cycleTemplate: cmd.data });
