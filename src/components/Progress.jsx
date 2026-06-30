@@ -69,7 +69,7 @@ function SectionHeading({ label, infoColor, children }) {
   return (
     <div className="mb-3">
       <div className="flex items-center gap-2">
-        <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">{label}</h2>
+        <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider">{label}</h2>
         <InfoToggle id={label} color={infoColor}>{children}</InfoToggle>
       </div>
     </div>
@@ -78,7 +78,7 @@ function SectionHeading({ label, infoColor, children }) {
 
 function Card({ children, className = '' }) {
   return (
-    <div className={`rounded-xl p-4 ${className}`} style={{ background: '#1a1a1a' }}>
+    <div className={`bg-surface-light rounded-xl p-4 ${className}`}>
       {children}
     </div>
   );
@@ -355,7 +355,7 @@ export default function Progress() {
         {/* Forecast chart */}
         <Card className="mb-3">
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm font-medium text-zinc-300">
+            <span className="text-sm font-medium text-text">
               {goalConfig.showForecastProjection && primaryTarget
                 ? `Forecast to ${forecastGoalLabel}`
                 : 'Trend'}
@@ -378,14 +378,14 @@ export default function Progress() {
         {/* Sub-metric expandables */}
         <Card>
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-sm font-medium text-zinc-300">Sub-metrics</span>
+            <span className="text-sm font-medium text-text">Sub-metrics</span>
             <InfoToggle id="sub-metrics" color="#a1a1aa">
               All weights in kg. Body fat % uses the US Navy formula from waist, neck, and hip
               measurements. Lean mass = weight × (1 − body fat%). Tap any row to see the trend
               for the last 8 weeks.
             </InfoToggle>
           </div>
-          <div className="divide-y divide-zinc-800">
+          <div className="divide-y divide-border">
             {goalConfig.subMetricOrder.map((metric) => {
               const series = seriesByMetric[metric];
               const val = latest(series);
@@ -472,8 +472,8 @@ export default function Progress() {
 
         {/* Driver expandables */}
         <Card>
-          <div className="text-sm font-medium text-zinc-300 mb-2">Detail — last 7 days</div>
-          <div className="divide-y divide-zinc-800">
+          <div className="text-sm font-medium text-text mb-2">Detail — last 7 days</div>
+          <div className="divide-y divide-border">
 
             {/* Workouts */}
             <ExpandableRow
@@ -503,7 +503,7 @@ export default function Progress() {
               <div style={{ height: 60 }}>
                 <Bar data={buildProteinBars()} options={chartBarOptions} />
               </div>
-              <p className="text-[10px] text-zinc-600 mt-1">Blue = hit target ({proteinMin}g+), amber = missed</p>
+              <p className="text-[10px] text-text-muted mt-1">Blue = hit target ({proteinMin}g+), amber = missed</p>
             </ExpandableRow>
 
             {/* Calories */}
@@ -515,7 +515,7 @@ export default function Progress() {
               <div style={{ height: 60 }}>
                 <Bar data={buildCalorieBars()} options={chartBarOptions} />
               </div>
-              <p className="text-[10px] text-zinc-600 mt-1">
+              <p className="text-[10px] text-text-muted mt-1">
                 {intent === 'cut'
                   ? `Green = under ${calorieTarget.max} kcal, red = over`
                   : intent === 'bulk'
@@ -544,7 +544,7 @@ export default function Progress() {
                   }}
                 />
               </div>
-              <p className="text-[10px] text-zinc-600 mt-1">Weekly volume load (sets × reps × kg). Rising trend = progressive overload.</p>
+              <p className="text-[10px] text-text-muted mt-1">Weekly volume load (sets × reps × kg). Rising trend = progressive overload.</p>
             </ExpandableRow>
 
           </div>
@@ -565,17 +565,17 @@ export default function Progress() {
         <Card>
           {CATEGORY_ORDER.filter((cat) => prsByCategory[cat]?.length > 0).map((cat) => (
             <div key={cat} className="mb-4 last:mb-0">
-              <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 capitalize">
+              <div className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 capitalize">
                 {cat}
               </div>
               <div className="space-y-2">
                 {prsByCategory[cat].map((pr) => (
                   <div key={pr.name} className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-300">{pr.name}</span>
+                    <span className="text-sm text-text">{pr.name}</span>
                     <div className="text-right">
                       <span className="text-sm font-semibold text-green-400">{pr.weight} kg</span>
                       {pr.estimatedOneRM && (
-                        <span className="text-xs text-zinc-500 ml-2">
+                        <span className="text-xs text-text-muted ml-2">
                           est. 1RM {pr.estimatedOneRM.toFixed(0)} kg
                         </span>
                       )}
@@ -586,7 +586,7 @@ export default function Progress() {
             </div>
           ))}
           {Object.keys(prsByCategory).length === 0 && (
-            <p className="text-sm text-zinc-600 text-center py-4">
+            <p className="text-sm text-text-muted text-center py-4">
               No records yet — complete a workout to see your PRs here.
             </p>
           )}

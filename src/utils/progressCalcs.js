@@ -69,14 +69,18 @@ export function buildWaistSeries(measurementEntries) {
 export function buildBodyFatSeries(measurementEntries, profile) {
   return [...measurementEntries]
     .map((e) => {
-      const bf = calculateBodyFatNavy(
+      const navy = calculateBodyFatNavy(
         profile.gender,
         profile.height,
         e.waist ?? profile.waistCircumference,
         e.neck ?? profile.neckCircumference,
         e.hip ?? profile.hipCircumference,
       );
-      return bf && bf > 0 && bf < 60 ? { date: e.date, value: bf } : null;
+      const bf =
+        navy && navy > 0 && navy < 60 ? navy
+        : e.bodyFatManual && e.bodyFatManual > 0 && e.bodyFatManual < 60 ? e.bodyFatManual
+        : null;
+      return bf ? { date: e.date, value: bf } : null;
     })
     .filter(Boolean)
     .sort((a, b) => new Date(a.date) - new Date(b.date));
