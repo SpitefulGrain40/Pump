@@ -15,8 +15,14 @@ export default function SparklineSVG({ data, color, goalValue, note, height = 48
 
   const vals = data.map((p) => p.value);
   const allVals = goalValue != null ? [...vals, goalValue] : vals;
-  const minV = Math.min(...allVals) * 0.97;
-  const maxV = Math.max(...allVals) * 1.03;
+  let minV = Math.min(...allVals) * 0.97;
+  let maxV = Math.max(...allVals) * 1.03;
+
+  // Guard against divide-by-zero when all values are identical
+  if (minV === maxV) {
+    minV -= 1;
+    maxV += 1;
+  }
 
   const xOf = (i) => PAD + (i / (data.length - 1)) * plotW;
   const yOf = (v) => PAD + (1 - (v - minV) / (maxV - minV)) * plotH;
