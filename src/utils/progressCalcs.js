@@ -34,6 +34,10 @@ export function forecastToTarget(series, targetValue) {
   const reg = linearRegression(points);
   if (!reg || reg.slope === 0) return null;
 
+  const currentValue = recent[recent.length - 1].value;
+  const movingToward = reg.slope < 0 ? targetValue < currentValue : targetValue > currentValue;
+  if (!movingToward) return null;
+
   const todayOffset = (Date.now() - base) / 86400000;
   const interceptDay = (targetValue - reg.intercept) / reg.slope;
   const daysAway = interceptDay - todayOffset;
