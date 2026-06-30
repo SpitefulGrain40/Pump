@@ -45,7 +45,10 @@ export default function Settings() {
 
     try {
       const result = await importData(file);
-      alert(`Backup restored from ${result.exportedAt}. Please refresh the app.`);
+      const warn = result.skipped?.length
+        ? `\n\nNote: ${result.skipped.join(', ')} could not be restored (too large for this device's storage). All other data was restored.`
+        : '';
+      alert(`Backup restored from ${result.exportedAt}. The app will now refresh.${warn}`);
       window.location.reload();
     } catch (err) {
       alert('Failed to import backup: ' + err.message);

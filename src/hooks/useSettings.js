@@ -60,22 +60,44 @@ export function useSettings() {
   };
 }
 
+// Strip base64 image data from a serialised chat-history string so backups
+// stay small. A single un-stripped image can be several MB and push the whole
+// backup past the localStorage quota on restore. Mirrors Coach.jsx's persist
+// strip: drop `image`, mark `hadImage: true`.
+function stripChatImages(chatHistoryStr) {
+  if (!chatHistoryStr) return chatHistoryStr;
+  try {
+    const messages = JSON.parse(chatHistoryStr);
+    if (!Array.isArray(messages)) return chatHistoryStr;
+    const stripped = messages.map((m) => {
+      if (!m || !m.image) return m;
+      const { image, ...rest } = m;
+      return { ...rest, hadImage: true };
+    });
+    return JSON.stringify(stripped);
+  } catch {
+    return chatHistoryStr;
+  }
+}
+
 export function useBackup() {
   const [lastBackup, setLastBackup] = useLocalStorage('pump-last-backup', null);
 
   const exportData = () => {
     const data = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       profile: localStorage.getItem('pump-user-profile'),
       aiSettings: localStorage.getItem('pump-ai-settings'),
       weightHistory: localStorage.getItem('pump-weight-history'),
+      measurementHistory: localStorage.getItem('pump-measurement-history'),
       nutritionLogs: localStorage.getItem('pump-nutrition-logs'),
       workoutLogs: localStorage.getItem('pump-workout-logs'),
       workoutSchedule: localStorage.getItem('pump-workout-schedule'),
+      workoutTemplates: localStorage.getItem('pump-workout-templates'),
       completedWorkouts: localStorage.getItem('pump-completed-workouts'),
       prs: localStorage.getItem('pump-prs'),
-      chatHistory: localStorage.getItem('pump-chat-history'),
+      chatHistory: stripChatImages(localStorage.getItem('pump-chat-history')),
       coachMemories: localStorage.getItem('pump-coach-memories'),
       docChat: localStorage.getItem('pump-doc-chat'),
       docLongterm: localStorage.getItem('pump-doc-longterm'),
@@ -100,29 +122,54 @@ export function useBackup() {
       const reader = new FileReader();
 
       reader.onload = (e) => {
+        let data;
         try {
-          const data = JSON.parse(e.target.result);
-
-          if (data.profile) localStorage.setItem('pump-user-profile', data.profile);
-          if (data.aiSettings) localStorage.setItem('pump-ai-settings', data.aiSettings);
-          if (data.weightHistory) localStorage.setItem('pump-weight-history', data.weightHistory);
-          if (data.nutritionLogs) localStorage.setItem('pump-nutrition-logs', data.nutritionLogs);
-          if (data.workoutLogs) localStorage.setItem('pump-workout-logs', data.workoutLogs);
-          if (data.workoutSchedule) localStorage.setItem('pump-workout-schedule', data.workoutSchedule);
-          if (data.completedWorkouts) localStorage.setItem('pump-completed-workouts', data.completedWorkouts);
-          if (data.prs) localStorage.setItem('pump-prs', data.prs);
-          if (data.chatHistory) localStorage.setItem('pump-chat-history', data.chatHistory);
-          if (data.coachMemories) localStorage.setItem('pump-coach-memories', data.coachMemories);
-          if (data.docChat) localStorage.setItem('pump-doc-chat', data.docChat);
-          if (data.docLongterm) localStorage.setItem('pump-doc-longterm', data.docLongterm);
-          if (data.docSessions) localStorage.setItem('pump-doc-sessions', data.docSessions);
-          if (data.docSystemPrompt) localStorage.setItem('pump-doc-system-prompt', data.docSystemPrompt);
-          if (data.coachSystemPrompt) localStorage.setItem('pump-coach-system-prompt', data.coachSystemPrompt);
-
-          resolve({ success: true, exportedAt: data.exportedAt });
+          data = JSON.parse(e.target.result);
         } catch {
           reject(new Error('Invalid backup file'));
+          return;
         }
+
+        // Map backup field → localStorage key. Ordered so the critical,
+        // small keys (profile, schedule, measurements) are written FIRST —
+        // a quota failure on a large key (chatHistory) must never block them.
+        const KEY_MAP = [
+          ['profile', 'pump-user-profile'],
+          ['aiSettings', 'pump-ai-settings'],
+          ['weightHistory', 'pump-weight-history'],
+          ['measurementHistory', 'pump-measurement-history'],
+          ['workoutSchedule', 'pump-workout-schedule'],
+          ['workoutTemplates', 'pump-workout-templates'],
+          ['completedWorkouts', 'pump-completed-workouts'],
+          ['prs', 'pump-prs'],
+          ['workoutLogs', 'pump-workout-logs'],
+          ['nutritionLogs', 'pump-nutrition-logs'],
+          ['coachMemories', 'pump-coach-memories'],
+          ['docChat', 'pump-doc-chat'],
+          ['docLongterm', 'pump-doc-longterm'],
+          ['docSessions', 'pump-doc-sessions'],
+          ['docSystemPrompt', 'pump-doc-system-prompt'],
+          ['coachSystemPrompt', 'pump-coach-system-prompt'],
+          // chatHistory LAST: it's the largest and least critical. Strip any
+          // base64 images so an old (pre-v2) backup can't blow the quota.
+          ['chatHistory', 'pump-chat-history'],
+        ];
+
+        const skipped = [];
+        for (const [field, lsKey] of KEY_MAP) {
+          if (data[field] == null) continue;
+          const valueToStore = field === 'chatHistory' ? stripChatImages(data[field]) : data[field];
+          try {
+            localStorage.setItem(lsKey, valueToStore);
+          } catch (err) {
+            // Quota or other write error on this key — record and keep going
+            // so the rest of the restore (and the reload) still happens.
+            console.error(`Restore: failed to write ${lsKey}:`, err);
+            skipped.push(field);
+          }
+        }
+
+        resolve({ success: true, exportedAt: data.exportedAt, skipped });
       };
 
       reader.onerror = () => reject(new Error('Failed to read file'));
@@ -135,9 +182,11 @@ export function useBackup() {
       'pump-user-profile',
       'pump-ai-settings',
       'pump-weight-history',
+      'pump-measurement-history',
       'pump-nutrition-logs',
       'pump-workout-logs',
       'pump-workout-schedule',
+      'pump-workout-templates',
       'pump-completed-workouts',
       'pump-prs',
       'pump-chat-history',
