@@ -46,8 +46,24 @@ export default function ForecastChart({
     s.goalValue,
   ]).filter((v) => v != null);
 
-  const minVal = Math.min(...allVals) * 0.97;
-  const maxVal = Math.max(...allVals) * 1.03;
+  // Guard against empty/all-null values
+  if (allVals.length === 0) {
+    return (
+      <div className="text-xs text-zinc-600 text-center py-4">
+        Not enough data yet — keep logging!
+      </div>
+    );
+  }
+
+  let minVal = Math.min(...allVals) * 0.97;
+  let maxVal = Math.max(...allVals) * 1.03;
+
+  // Guard against divide-by-zero when all values are identical
+  if (minVal === maxVal) {
+    minVal -= 1;
+    maxVal += 1;
+  }
+
   const minDate = weeksAgo8;
   const maxDate = weeksAhead9;
 
