@@ -209,6 +209,86 @@ export default function Progress() {
   // ── Sub-metrics ───────────────────────────────────────────────────────────
   const subMetricNotes = { weight: goalConfig.weightRowNote };
 
+  // ── Drivers computation ──────────────────────────────────────────────────
+  const workoutAdherence = useMemo(
+    () => calcWorkoutAdherence(workoutLogs, 7),
+    [workoutLogs],
+  );
+
+  const proteinMin = profile?.proteinTarget?.min ?? 0;
+  const proteinAdherence = useMemo(
+    () => calcProteinAdherence(nutritionLogs, proteinMin, 7),
+    [nutritionLogs, proteinMin],
+  );
+
+  const calorieTarget = profile?.calorieTarget ?? { min: null, max: null };
+  const calorieAdherence = useMemo(
+    () => calcCalorieAdherence(nutritionLogs, calorieTarget, 7, intent),
+    [nutritionLogs, calorieTarget, intent],
+  );
+
+  const weeklyVolumes = useMemo(() => calcWeeklyVolumes(workoutLogs, 8), [workoutLogs]);
+  const thisWeekVol = weeklyVolumes[weeklyVolumes.length - 1]?.volume ?? 0;
+  const lastWeekVol = weeklyVolumes[weeklyVolumes.length - 2]?.volume ?? 0;
+  const volumeChangePct = lastWeekVol > 0
+    ? Math.round(((thisWeekVol - lastWeekVol) / lastWeekVol) * 100)
+    : null;
+
+  // Volume ring: treat % change as a score. +10% = full ring. cap at ±10%.
+  const volumeRingValue = Math.max(0, Math.min(10, (volumeChangePct ?? 0) + 5));
+  const volumeDisplayVal = volumeChangePct != null
+    ? `${volumeChangePct > 0 ? '+' : ''}${volumeChangePct}%`
+    : '--';
+
+  const chartBarOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    scales: {
+      x: { display: false },
+      y: { display: false, beginAtZero: true },
+    },
+  };
+
+  function buildProteinBars() {
+    const results = proteinAdherence.results.slice(-14).reverse();
+    return {
+      labels: results.map((r) => r.date),
+      datasets: [{
+        data: results.map((r) => r.value),
+        backgroundColor: results.map((r) => r.hit ? '#60a5fa' : '#78350f'),
+        borderRadius: 3,
+      }],
+    };
+  }
+
+  function buildCalorieBars() {
+    const results = calorieAdherence.results.slice(-14).reverse();
+    return {
+      labels: results.map((r) => r.date),
+      datasets: [{
+        data: results.map((r) => r.value),
+        backgroundColor: results.map((r) => r.hit ? '#4ade80' : '#7f1d1d'),
+        borderRadius: 3,
+      }],
+    };
+  }
+
+  function buildVolumeLineData() {
+    return {
+      labels: weeklyVolumes.map((w) => w.weekStart),
+      datasets: [{
+        data: weeklyVolumes.map((w) => w.volume),
+        borderColor: '#c084fc',
+        backgroundColor: 'rgba(192,132,252,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointBackgroundColor: '#c084fc',
+      }],
+    };
+  }
+
   return (
     <div className="p-4 space-y-6 pb-24">
 
@@ -301,7 +381,136 @@ export default function Progress() {
         </Card>
       </section>
 
-      {/* ── Section 2 placeholder — added in Task 7 ── */}
+      {/* ── Section 2: Drivers ── */}
+      <section>
+        <SectionHeading label="Drivers" infoColor="#4ade80">
+          <strong>What's making it happen?</strong> Four metrics that drive your results.
+          <br /><br />
+          <strong>Workouts:</strong> days you completed a logged session in the last 7 days.<br />
+          <strong>Protein:</strong> days you hit your minimum protein target ({proteinMin}g).<br />
+          <strong>{goalConfig.calorieRingLabel}:</strong> {
+            intent === 'cut' ? `days under your max calorie target (${calorieTarget.max} kcal).`
+            : intent === 'bulk' ? `days hitting your calorie minimum (${calorieTarget.min} kcal).`
+            : `days within your calorie range (${calorieTarget.min}–${calorieTarget.max} kcal).`
+          }<br />
+          <strong>Volume:</strong> weekly training volume load (sets × reps × kg) vs last week.
+        </SectionHeading>
+
+        {/* Score rings */}
+        <Card className="mb-3">
+          <div className="grid grid-cols-4 gap-2">
+            <ScoreRing
+              value={workoutAdherence.daysHit}
+              max={7}
+              displayValue={`${workoutAdherence.daysHit}/7`}
+              label="Workouts"
+              color="#4ade80"
+            />
+            <ScoreRing
+              value={proteinAdherence.daysHit}
+              max={7}
+              displayValue={`${proteinAdherence.daysHit}/7`}
+              label="Protein"
+              color="#60a5fa"
+            />
+            <ScoreRing
+              value={calorieAdherence.daysHit}
+              max={7}
+              displayValue={`${calorieAdherence.daysHit}/7`}
+              label={goalConfig.calorieRingLabel}
+              color={goalConfig.calorieRingColor}
+            />
+            <ScoreRing
+              value={volumeRingValue}
+              max={10}
+              displayValue={volumeDisplayVal}
+              label="Volume"
+              color="#c084fc"
+            />
+          </div>
+        </Card>
+
+        {/* Driver expandables */}
+        <Card>
+          <div className="text-sm font-medium text-zinc-300 mb-2">Detail — last 14 days</div>
+          <div className="divide-y divide-zinc-800">
+
+            {/* Workouts */}
+            <ExpandableRow
+              dotColor="#4ade80"
+              label="Workouts"
+              value={`${workoutAdherence.daysHit}/7 days`}
+            >
+              {/* 30-day dot grid */}
+              <div className="flex flex-wrap gap-1 py-1">
+                {workoutAdherence.results.map((r) => (
+                  <span
+                    key={r.date}
+                    className="w-3 h-3 rounded-sm"
+                    style={{ background: r.completed ? '#4ade80' : '#2a2a2a' }}
+                    title={r.date}
+                  />
+                ))}
+              </div>
+            </ExpandableRow>
+
+            {/* Protein */}
+            <ExpandableRow
+              dotColor="#60a5fa"
+              label="Protein"
+              value={`${proteinAdherence.daysHit}/7 days`}
+            >
+              <div style={{ height: 60 }}>
+                <Bar data={buildProteinBars()} options={chartBarOptions} />
+              </div>
+              <p className="text-[10px] text-zinc-600 mt-1">Blue = hit target ({proteinMin}g+), amber = missed</p>
+            </ExpandableRow>
+
+            {/* Calories */}
+            <ExpandableRow
+              dotColor={goalConfig.calorieRingColor}
+              label={goalConfig.calorieRingLabel}
+              value={`${calorieAdherence.daysHit}/7 days`}
+            >
+              <div style={{ height: 60 }}>
+                <Bar data={buildCalorieBars()} options={chartBarOptions} />
+              </div>
+              <p className="text-[10px] text-zinc-600 mt-1">
+                {intent === 'cut'
+                  ? `Green = under ${calorieTarget.max} kcal, red = over`
+                  : intent === 'bulk'
+                  ? `Green = over ${calorieTarget.min} kcal, red = under`
+                  : `Green = within range, red = outside`}
+              </p>
+            </ExpandableRow>
+
+            {/* Volume */}
+            <ExpandableRow
+              dotColor="#c084fc"
+              label="Volume load"
+              value={thisWeekVol.toLocaleString() + ' kg'}
+              change={volumeChangePct != null ? `${volumeChangePct > 0 ? '+' : ''}${volumeChangePct}%` : undefined}
+              changePositive={volumeChangePct != null ? volumeChangePct > 0 : undefined}
+            >
+              <div style={{ height: 60 }}>
+                <Line
+                  data={buildVolumeLineData()}
+                  options={{
+                    ...chartBarOptions,
+                    scales: {
+                      x: { display: false },
+                      y: { display: false },
+                    },
+                  }}
+                />
+              </div>
+              <p className="text-[10px] text-zinc-600 mt-1">Weekly volume load (sets × reps × kg). Rising trend = progressive overload.</p>
+            </ExpandableRow>
+
+          </div>
+        </Card>
+      </section>
+
       {/* ── Section 3 placeholder — added in Task 8 ── */}
 
     </div>
