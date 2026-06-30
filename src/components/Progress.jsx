@@ -117,13 +117,23 @@ export default function Progress() {
   const latestWeight = latest(weightSeries);
 
   // ── Composition ring ────────────────────────────────────────────────────
-  const [primaryArcDef, secondaryArcDef] = goalConfig.heroArcs;
-  const primaryPct =
-    primaryArcDef.metric === 'bodyfat' ? latestBF
-    : primaryArcDef.metric === 'weight' && latestBF ? latestBF  // for cut: weight arc = lean proportion
-    : null;
-  // Ring always shows lean/fat split — primary arc is body fat portion regardless of intent
   const bfPct = latestBF ?? 0;
+
+  // Goal-adaptive arc metric/value lookup. CompositionRing is fundamentally a
+  // 0-100% donut, so metrics without a natural 0-100 percentage (weight,
+  // lean mass) fall back to using body-fat % to drive the ring fill — only
+  // the arc colours/labels (and the stat rows below) change per intent.
+  const heroMetricValue = (metric) =>
+    metric === 'bodyfat' ? latestBF
+    : metric === 'leanmass' ? latestLean
+    : metric === 'weight' ? latestWeight
+    : null;
+  const heroMetricDisplay = (metric, val) =>
+    val == null ? '--'
+    : metric === 'bodyfat' ? `${val.toFixed(1)}%`
+    : `${val.toFixed(1)} kg`;
+
+  const [primaryArcDef, secondaryArcDef] = goalConfig.heroArcs;
 
   const centerValue =
     goalConfig.centerLabel === 'bodyfat' ? `${latestBF?.toFixed(1) ?? '--'}%`
@@ -135,20 +145,26 @@ export default function Progress() {
     : goalConfig.centerLabel === 'leanmass' ? 'lean mass'
     : 'weight';
 
-  const ringStats = [
-    {
-      label: 'Lean mass',
-      value: latestLean ? `${latestLean.toFixed(1)} kg` : '--',
-      change: latestLean && first(leanSeries) ? `${(latestLean - first(leanSeries) > 0 ? '+' : '')}${(latestLean - first(leanSeries)).toFixed(1)} kg` : null,
-      positive: latestLean && first(leanSeries) ? latestLean >= first(leanSeries) : false,
-    },
-    {
-      label: 'Body fat',
-      value: latestBF ? `${latestBF.toFixed(1)}%` : '--',
-      change: latestBF && first(bfSeries) ? `${(latestBF - first(bfSeries) > 0 ? '+' : '')}${(latestBF - first(bfSeries)).toFixed(1)}%` : null,
-      positive: latestBF && first(bfSeries) ? latestBF <= first(bfSeries) : false,
-    },
-  ];
+  function heroStat(arcDef) {
+    const series = seriesByMetric[arcDef.metric];
+    const val = heroMetricValue(arcDef.metric);
+    const firstVal = first(series);
+    const unit = arcDef.metric === 'bodyfat' ? '%' : ' kg';
+    // Lower is "positive" for body fat (and waist), higher is "positive" for lean mass/weight.
+    const lowerIsBetter = arcDef.metric === 'bodyfat';
+    return {
+      label: arcDef.label,
+      value: heroMetricDisplay(arcDef.metric, val),
+      change: val != null && firstVal != null
+        ? `${(val - firstVal > 0 ? '+' : '')}${(val - firstVal).toFixed(1)}${unit}`
+        : null,
+      positive: val != null && firstVal != null
+        ? (lowerIsBetter ? val <= firstVal : val >= firstVal)
+        : false,
+    };
+  }
+
+  const ringStats = [heroStat(primaryArcDef), heroStat(secondaryArcDef)];
 
   // ── Forecast ─────────────────────────────────────────────────────────────
   const [primaryMetric, secondaryMetric] = goalConfig.forecastMetrics;
@@ -202,8 +218,12 @@ export default function Progress() {
     weeksToGoal: secondaryForecast?.weeksAway ?? null,
   } : undefined;
 
+  const forecastGoalUnit = primaryMetric === 'bodyfat' ? '' : METRIC_UNITS[primaryMetric];
+  const forecastGoalLabelText = primaryMetric === 'bodyfat'
+    ? METRIC_LABELS[primaryMetric].replace('%', '').trim().toLowerCase()
+    : METRIC_LABELS[primaryMetric].toLowerCase();
   const forecastGoalLabel = primaryTarget
-    ? `${primaryTarget}${METRIC_UNITS[primaryMetric]} ${METRIC_LABELS[primaryMetric].toLowerCase()}`
+    ? `${primaryTarget}${primaryMetric === 'bodyfat' ? '%' : forecastGoalUnit} ${forecastGoalLabelText}`
     : '';
 
   // ── Sub-metrics ───────────────────────────────────────────────────────────
@@ -251,7 +271,7 @@ export default function Progress() {
   };
 
   function buildProteinBars() {
-    const results = proteinAdherence.results.slice(-14).reverse();
+    const results = proteinAdherence.results.reverse();
     return {
       labels: results.map((r) => r.date),
       datasets: [{
@@ -263,7 +283,7 @@ export default function Progress() {
   }
 
   function buildCalorieBars() {
-    const results = calorieAdherence.results.slice(-14).reverse();
+    const results = calorieAdherence.results.reverse();
     return {
       labels: results.map((r) => r.date),
       datasets: [{
@@ -324,8 +344,8 @@ export default function Progress() {
         {/* Composition ring */}
         <Card className="mb-3">
           <CompositionRing
-            primaryArc={{ pct: bfPct, color: METRIC_COLORS.bodyfat, label: 'Body fat' }}
-            secondaryArc={{ color: METRIC_COLORS.leanmass, label: 'Lean mass' }}
+            primaryArc={{ pct: bfPct, color: primaryArcDef.color, label: primaryArcDef.label }}
+            secondaryArc={{ color: secondaryArcDef.color, label: secondaryArcDef.label }}
             centerValue={centerValue}
             centerSublabel={centerSublabel}
             stats={ringStats}
@@ -452,7 +472,7 @@ export default function Progress() {
 
         {/* Driver expandables */}
         <Card>
-          <div className="text-sm font-medium text-zinc-300 mb-2">Detail — last 14 days</div>
+          <div className="text-sm font-medium text-zinc-300 mb-2">Detail — last 7 days</div>
           <div className="divide-y divide-zinc-800">
 
             {/* Workouts */}
@@ -461,7 +481,7 @@ export default function Progress() {
               label="Workouts"
               value={`${workoutAdherence.daysHit}/7 days`}
             >
-              {/* 30-day dot grid */}
+              {/* 7-day dot grid */}
               <div className="flex flex-wrap gap-1 py-1">
                 {workoutAdherence.results.map((r) => (
                   <span
