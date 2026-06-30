@@ -289,6 +289,26 @@ export default function Progress() {
     };
   }
 
+  // ── Records computation ───────────────────────────────────────────────────
+  const exercisePRs = useMemo(
+    () => getExercisePRs(workoutLogs, EXERCISE_LIBRARY),
+    [workoutLogs],
+  );
+
+  const CATEGORY_ORDER = ['push', 'pull', 'legs', 'core', 'cardio', 'other'];
+
+  const prsByCategory = useMemo(() => {
+    const groups = {};
+    Object.entries(exercisePRs).forEach(([name, pr]) => {
+      const cat = pr.category || 'other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push({ name, ...pr });
+    });
+    // Sort each category by PR weight descending
+    Object.values(groups).forEach((arr) => arr.sort((a, b) => b.weight - a.weight));
+    return groups;
+  }, [exercisePRs]);
+
   return (
     <div className="p-4 space-y-6 pb-24">
 
@@ -511,7 +531,47 @@ export default function Progress() {
         </Card>
       </section>
 
-      {/* ── Section 3 placeholder — added in Task 8 ── */}
+      {/* ── Section 3: Records ── */}
+      <section>
+        <SectionHeading label="Records" infoColor="#fbbf24">
+          <strong>How strong am I?</strong> Personal records from your completed workout logs.
+          <br /><br />
+          <strong>PR weight:</strong> the heaviest set you've logged for each exercise.<br />
+          <strong>Est. 1RM:</strong> estimated one-rep maximum using the Epley formula
+          (weight × (1 + reps ÷ 30)). Not shown when the PR was a single rep — that weight
+          IS your 1RM.
+        </SectionHeading>
+
+        <Card>
+          {CATEGORY_ORDER.filter((cat) => prsByCategory[cat]?.length > 0).map((cat) => (
+            <div key={cat} className="mb-4 last:mb-0">
+              <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 capitalize">
+                {cat}
+              </div>
+              <div className="space-y-2">
+                {prsByCategory[cat].map((pr) => (
+                  <div key={pr.name} className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-300">{pr.name}</span>
+                    <div className="text-right">
+                      <span className="text-sm font-semibold text-green-400">{pr.weight} kg</span>
+                      {pr.estimatedOneRM && (
+                        <span className="text-xs text-zinc-500 ml-2">
+                          est. 1RM {pr.estimatedOneRM.toFixed(0)} kg
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {Object.keys(prsByCategory).length === 0 && (
+            <p className="text-sm text-zinc-600 text-center py-4">
+              No records yet — complete a workout to see your PRs here.
+            </p>
+          )}
+        </Card>
+      </section>
 
     </div>
   );
