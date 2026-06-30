@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { differenceInDays, format, subDays, parseISO } from 'date-fns';
 import { Send, Loader2, Sparkles, AlertCircle, Search, X, Image, Link, ChevronDown, ChevronRight, Settings, Camera } from 'lucide-react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -94,7 +94,18 @@ const QUICK_PROMPTS = [
 ];
 
 export default function Coach() {
-  const [messages, setMessages] = useLocalStorage('pump-chat-history', []);
+  // Chat history is held in plain React state (so attached images can render
+  // for the current session) but persisted via persistMessages below, which
+  // ALWAYS strips base64 images first. Using useLocalStorage here would
+  // auto-persist the full image-bearing state and blow the 5MB quota.
+  const [messages, setMessages] = useState(() => {
+    try {
+      const stored = localStorage.getItem('pump-chat-history');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -115,6 +126,24 @@ export default function Coach() {
   useEffect(() => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
+  }, []);
+
+  // Single source of truth for writing chat history: strip base64 images
+  // (kept only in React state for in-session display) before persisting, so
+  // storage never accumulates multi-MB images. Always writes to localStorage —
+  // even if the component unmounted mid-request — but only setState if mounted.
+  const persistMessages = useCallback((msgs) => {
+    try {
+      const stripped = msgs.map((m) => {
+        if (!m.image) return m;
+        const { image, ...rest } = m;
+        return { ...rest, hadImage: true };
+      });
+      localStorage.setItem('pump-chat-history', JSON.stringify(stripped));
+    } catch (e) {
+      console.error('Failed to persist chat history:', e);
+    }
+    if (isMountedRef.current) setMessages(msgs);
   }, []);
 
   const { aiSettings, isConfigured } = useSettings();
@@ -434,7 +463,7 @@ export default function Coach() {
       image: pendingImage || undefined
     };
     const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
+    persistMessages(updatedMessages);
     setInput('');
     setPendingImage(null);
     setError(null);
@@ -557,16 +586,8 @@ export default function Coach() {
       };
 
       const finalMessages = [...updatedMessages, assistantMessage];
-      // Strip image data before persisting — base64 images blow the 5MB quota
-      const messagesForStorage = finalMessages.map(m => {
-        if (!m.image) return m;
-        const { image, ...rest } = m;
-        return { ...rest, hadImage: true };
-      });
-      localStorage.setItem('pump-chat-history', JSON.stringify(messagesForStorage));
-      if (isMountedRef.current) {
-        setMessages(finalMessages);
-      }
+      // persistMessages strips images before writing and guards the mount check.
+      persistMessages(finalMessages);
     } catch (err) {
       if (isMountedRef.current) {
         setError(err.message || 'Failed to get response from Coach');
@@ -656,7 +677,7 @@ export default function Coach() {
                   return;
                 }
                 if (confirm('Clear chat history? Your other data (meals, workouts, etc.) will be kept.')) {
-                  setMessages([]);
+                  persistMessages([]);
                 }
               }}
               className="px-2 py-1 rounded bg-red-600 text-white text-xs"
