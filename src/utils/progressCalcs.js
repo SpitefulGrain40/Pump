@@ -22,7 +22,7 @@ export function linearRegression(points) {
 export function forecastToTarget(series, targetValue) {
   const cutoff = new Date(Date.now() - 28 * 86400000);
   const recent = series.filter((p) => new Date(p.date) >= cutoff);
-  if (recent.length < 4) return null;
+  if (recent.length < 3) return null;
 
   const sorted = [...recent].sort((a, b) => new Date(a.date) - new Date(b.date));
   const base = new Date(sorted[0].date).getTime();

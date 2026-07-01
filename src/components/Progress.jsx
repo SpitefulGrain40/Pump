@@ -1,5 +1,4 @@
-import { useMemo, useState } from 'react';
-import { format, subWeeks } from 'date-fns';
+import { useMemo } from 'react';
 import { EXERCISE_LIBRARY } from '../utils/dataSchemas';
 import { Bar, Line } from 'react-chartjs-2';
 import {
@@ -32,7 +31,7 @@ import {
   calcCalorieAdherence,
   getExercisePRs,
 } from '../utils/progressCalcs';
-import CompositionRing from './progress/CompositionRing';
+import CompositionBar from './progress/CompositionBar';
 import ForecastChart from './progress/ForecastChart';
 import ScoreRing from './progress/ScoreRing';
 import InfoToggle from './progress/InfoToggle';
@@ -89,7 +88,7 @@ export default function Progress() {
   const { profile } = useUserProfile();
   const { entries: measurementEntries } = useMeasurementHistory();
   const { meals: nutritionLogs } = useNutritionLogs();
-  const { logs: workoutLogs, prs } = useWorkoutLogs();
+  const { logs: workoutLogs } = useWorkoutLogs();
 
   const intent = profile?.goal?.intent || 'recomp';
   const goalConfig = useMemo(() => getGoalConfig(intent), [intent]);
@@ -116,70 +115,21 @@ export default function Progress() {
   const latestLean = latest(leanSeries);
   const latestWeight = latest(weightSeries);
 
-  // ── Composition ring ────────────────────────────────────────────────────
-  const bfPct = latestBF ?? 0;
-
-  // Goal-adaptive arc metric/value lookup. CompositionRing is fundamentally a
-  // 0-100% donut, so metrics without a natural 0-100 percentage (weight,
-  // lean mass) fall back to using body-fat % to drive the ring fill — only
-  // the arc colours/labels (and the stat rows below) change per intent.
-  const heroMetricValue = (metric) =>
-    metric === 'bodyfat' ? latestBF
-    : metric === 'leanmass' ? latestLean
-    : metric === 'weight' ? latestWeight
+  // ── Composition card (lean/fat split + body-fat goal meter) ──────────────
+  const bodyFatGoal = targets.bodyfat?.value ?? null;
+  const leanFirst = first(leanSeries);
+  const leanDeltaStr = (latestLean != null && leanFirst != null)
+    ? `${latestLean - leanFirst >= 0 ? '+' : ''}${(latestLean - leanFirst).toFixed(1)} kg`
     : null;
-  const heroMetricDisplay = (metric, val) =>
-    val == null ? '--'
-    : metric === 'bodyfat' ? `${val.toFixed(1)}%`
-    : `${val.toFixed(1)} kg`;
 
-  const [primaryArcDef, secondaryArcDef] = goalConfig.heroArcs;
-
-  const centerValue =
-    goalConfig.centerLabel === 'bodyfat' ? `${latestBF?.toFixed(1) ?? '--'}%`
-    : goalConfig.centerLabel === 'leanmass' ? `${latestLean?.toFixed(1) ?? '--'} kg`
-    : `${latestWeight?.toFixed(1) ?? '--'} kg`;
-
-  const centerSublabel =
-    goalConfig.centerLabel === 'bodyfat' ? 'body fat'
-    : goalConfig.centerLabel === 'leanmass' ? 'lean mass'
-    : 'weight';
-
-  function heroStat(arcDef) {
-    const series = seriesByMetric[arcDef.metric];
-    const val = heroMetricValue(arcDef.metric);
-    const firstVal = first(series);
-    const unit = arcDef.metric === 'bodyfat' ? '%' : ' kg';
-    // Lower is "positive" for body fat (and waist), higher is "positive" for lean mass/weight.
-    const lowerIsBetter = arcDef.metric === 'bodyfat';
-    return {
-      label: arcDef.label,
-      value: heroMetricDisplay(arcDef.metric, val),
-      change: val != null && firstVal != null
-        ? `${(val - firstVal > 0 ? '+' : '')}${(val - firstVal).toFixed(1)}${unit}`
-        : null,
-      positive: val != null && firstVal != null
-        ? (lowerIsBetter ? val <= firstVal : val >= firstVal)
-        : false,
-    };
-  }
-
-  const ringStats = [heroStat(primaryArcDef), heroStat(secondaryArcDef)];
-
-  // ── Forecast ─────────────────────────────────────────────────────────────
-  const [primaryMetric, secondaryMetric] = goalConfig.forecastMetrics;
+  // ── Forecast (primary metric only — a single, meaningful y-axis) ─────────
+  const primaryMetric = goalConfig.forecastMetrics[0];
   const primaryTarget = targets[primaryMetric]?.value ?? null;
-  const secondaryTarget = targets[secondaryMetric]?.value ?? null;
   const primaryForecast = useMemo(
     () => primaryTarget ? forecastToTarget(seriesByMetric[primaryMetric], primaryTarget) : null,
     [bfSeries, leanSeries, weightSeries, primaryMetric, primaryTarget],
   );
-  const secondaryForecast = useMemo(
-    () => secondaryTarget ? forecastToTarget(seriesByMetric[secondaryMetric], secondaryTarget) : null,
-    [bfSeries, leanSeries, weightSeries, secondaryMetric, secondaryTarget],
-  );
 
-  // Project forward using regression slope for 9 weeks
   function buildProjected(series, forecast) {
     if (!forecast || !goalConfig.showForecastProjection) return null;
     const last = series[series.length - 1];
@@ -187,44 +137,45 @@ export default function Progress() {
     const points = [];
     for (let d = 0; d <= 63; d += 7) {
       const date = new Date(Date.now() + d * 86400000).toISOString().split('T')[0];
-      const value = last.value + forecast.slope * d;
-      points.push({ date, value });
+      points.push({ date, value: last.value + forecast.slope * d });
     }
     return points;
   }
-
-  const primaryProjected = buildProjected(seriesByMetric[primaryMetric], primaryForecast);
-  const secondaryProjected = buildProjected(seriesByMetric[secondaryMetric], secondaryForecast);
 
   const forecastPrimary = {
     historical: seriesByMetric[primaryMetric].filter(
       (p) => new Date(p.date) >= new Date(Date.now() - 56 * 86400000),
     ),
-    projected: primaryProjected,
+    projected: buildProjected(seriesByMetric[primaryMetric], primaryForecast),
     color: METRIC_COLORS[primaryMetric],
     goalValue: primaryTarget,
     interceptDate: primaryForecast?.interceptDate ?? null,
     weeksToGoal: primaryForecast?.weeksAway ?? null,
   };
 
-  const forecastSecondary = secondaryMetric ? {
-    historical: seriesByMetric[secondaryMetric].filter(
-      (p) => new Date(p.date) >= new Date(Date.now() - 56 * 86400000),
-    ),
-    projected: secondaryProjected,
-    color: METRIC_COLORS[secondaryMetric],
-    goalValue: secondaryTarget,
-    interceptDate: secondaryForecast?.interceptDate ?? null,
-    weeksToGoal: secondaryForecast?.weeksAway ?? null,
-  } : undefined;
-
-  const forecastGoalUnit = primaryMetric === 'bodyfat' ? '' : METRIC_UNITS[primaryMetric];
+  const forecastUnit = primaryMetric === 'bodyfat' ? '%' : ' kg';
   const forecastGoalLabelText = primaryMetric === 'bodyfat'
     ? METRIC_LABELS[primaryMetric].replace('%', '').trim().toLowerCase()
     : METRIC_LABELS[primaryMetric].toLowerCase();
   const forecastGoalLabel = primaryTarget
-    ? `${primaryTarget}${primaryMetric === 'bodyfat' ? '%' : forecastGoalUnit} ${forecastGoalLabelText}`
+    ? `${primaryTarget}${forecastUnit} ${forecastGoalLabelText}`
     : '';
+
+  // Explain WHY there's no projection, when there isn't one.
+  const recentPrimaryCount = seriesByMetric[primaryMetric].filter(
+    (p) => new Date(p.date) >= new Date(Date.now() - 28 * 86400000),
+  ).length;
+  let noForecastReason = null;
+  if (!goalConfig.showForecastProjection) {
+    noForecastReason = 'Trend only — holding steady is the goal on maintain.';
+  } else if (primaryTarget == null) {
+    noForecastReason = `Set a ${forecastGoalLabelText} target in Settings to see your forecast.`;
+  } else if (recentPrimaryCount < 3) {
+    const need = 3 - recentPrimaryCount;
+    noForecastReason = `Log ${need} more measurement${need > 1 ? 's' : ''} in the last month to project a forecast.`;
+  } else if (!primaryForecast) {
+    noForecastReason = 'Your recent trend is flat or moving away from your goal — no forecast yet.';
+  }
 
   // ── Sub-metrics ───────────────────────────────────────────────────────────
   const subMetricNotes = { weight: goalConfig.weightRowNote };
@@ -244,6 +195,18 @@ export default function Progress() {
   const calorieTarget = profile?.calorieTarget ?? { min: null, max: null };
   const calorieAdherence = useMemo(
     () => calcCalorieAdherence(nutritionLogs, calorieTarget, 7, intent),
+    [nutritionLogs, calorieTarget, intent],
+  );
+
+  // 30-day versions power the expandable detail charts (a week is too short to
+  // read a trend); the rings above stay on the 7-day snapshot.
+  const workoutAdherence30 = useMemo(() => calcWorkoutAdherence(workoutLogs, 30), [workoutLogs]);
+  const proteinAdherence30 = useMemo(
+    () => calcProteinAdherence(nutritionLogs, proteinMin, 30),
+    [nutritionLogs, proteinMin],
+  );
+  const calorieAdherence30 = useMemo(
+    () => calcCalorieAdherence(nutritionLogs, calorieTarget, 30, intent),
     [nutritionLogs, calorieTarget, intent],
   );
 
@@ -271,7 +234,7 @@ export default function Progress() {
   };
 
   function buildProteinBars() {
-    const results = proteinAdherence.results.reverse();
+    const results = [...proteinAdherence30.results].reverse();
     return {
       labels: results.map((r) => r.date),
       datasets: [{
@@ -283,7 +246,7 @@ export default function Progress() {
   }
 
   function buildCalorieBars() {
-    const results = calorieAdherence.results.reverse();
+    const results = [...calorieAdherence30.results].reverse();
     return {
       labels: results.map((r) => r.date),
       datasets: [{
@@ -332,23 +295,29 @@ export default function Progress() {
   return (
     <div className="p-4 space-y-6 pb-24">
 
+      {/* Page header — consistent with the other tabs */}
+      <div>
+        <h1 className="text-2xl font-bold text-text">Progress</h1>
+        <p className="text-text-muted text-sm">Outcomes, drivers, and records</p>
+      </div>
+
       {/* ── Section 1: Outcomes ── */}
       <section>
         <SectionHeading label="Outcomes" infoColor="#60a5fa">
           <strong>Is it working?</strong> This section tracks your body composition over time.
-          The ring shows your current lean mass vs body fat split. The forecast projects your
-          trend to your goal using linear regression on the last 4 weeks of data.
-          Body fat % uses the US Navy formula from your measurement history.
+          The bar shows your current lean mass vs fat mass split; the meter tracks body fat
+          against your goal. The forecast projects your trend using linear regression on your
+          recent measurements. Body fat % uses the US Navy formula from your measurement history.
         </SectionHeading>
 
-        {/* Composition ring */}
+        {/* Composition card */}
         <Card className="mb-3">
-          <CompositionRing
-            primaryArc={{ pct: bfPct, color: primaryArcDef.color, label: primaryArcDef.label }}
-            secondaryArc={{ color: secondaryArcDef.color, label: secondaryArcDef.label }}
-            centerValue={centerValue}
-            centerSublabel={centerSublabel}
-            stats={ringStats}
+          <CompositionBar
+            weight={latestWeight}
+            leanMass={latestLean}
+            bodyFatPct={latestBF}
+            bodyFatGoal={bodyFatGoal}
+            leanChange={leanDeltaStr}
           />
         </Card>
 
@@ -361,17 +330,18 @@ export default function Progress() {
                 : 'Trend'}
             </span>
             <InfoToggle id="forecast" color="#60a5fa">
-              The dashed lines are projections based on your last 4 weeks of data using linear
-              regression. The filled circle shows where your trend meets your goal. Needs at least
-              4 data points in the last 28 days to project. Solid lines = actual data;
-              dashed = projection.
+              The solid line is your actual {forecastGoalLabelText}; the dashed line projects it
+              forward using linear regression on the last 4 weeks. The filled dot marks where your
+              trend meets your goal. Needs at least 3 measurements in the last month — and only
+              projects when your trend is actually heading toward your goal.
             </InfoToggle>
           </div>
           <ForecastChart
             primarySeries={forecastPrimary}
-            secondarySeries={forecastSecondary}
             showProjection={goalConfig.showForecastProjection}
             goalLabel={forecastGoalLabel}
+            unit={forecastUnit}
+            noForecastReason={noForecastReason}
           />
         </Card>
 
@@ -381,8 +351,8 @@ export default function Progress() {
             <span className="text-sm font-medium text-text">Sub-metrics</span>
             <InfoToggle id="sub-metrics" color="#a1a1aa">
               All weights in kg. Body fat % uses the US Navy formula from waist, neck, and hip
-              measurements. Lean mass = weight × (1 − body fat%). Tap any row to see the trend
-              for the last 8 weeks.
+              measurements. Lean mass = weight × (1 − body fat%). Tap any row to see the last 8
+              weeks — then tap a point on the chart for its exact date and value.
             </InfoToggle>
           </div>
           <div className="divide-y divide-border">
@@ -411,8 +381,9 @@ export default function Progress() {
                     data={series.slice(-56)}
                     color={METRIC_COLORS[metric]}
                     goalValue={bfGoal}
+                    unit={METRIC_UNITS[metric]}
                     note={subMetricNotes[metric]}
-                    height={48}
+                    height={56}
                   />
                 </ExpandableRow>
               );
@@ -424,16 +395,17 @@ export default function Progress() {
       {/* ── Section 2: Drivers ── */}
       <section>
         <SectionHeading label="Drivers" infoColor="#4ade80">
-          <strong>What's making it happen?</strong> Four metrics that drive your results.
+          <strong>What's making it happen?</strong> The four habits that drive your results. Each
+          ring scores the <strong>last 7 days</strong>; expand a row for the last 30.
           <br /><br />
-          <strong>Workouts:</strong> days you completed a logged session in the last 7 days.<br />
-          <strong>Protein:</strong> days you hit your minimum protein target ({proteinMin}g).<br />
+          <strong>Workouts:</strong> days you completed a logged session — full ring = 7/7.<br />
+          <strong>Protein:</strong> days you hit your protein minimum ({proteinMin}g), of the days you logged food — full ring = 7/7.<br />
           <strong>{goalConfig.calorieRingLabel}:</strong> {
-            intent === 'cut' ? `days under your max calorie target (${calorieTarget.max} kcal).`
-            : intent === 'bulk' ? `days hitting your calorie minimum (${calorieTarget.min} kcal).`
-            : `days within your calorie range (${calorieTarget.min}–${calorieTarget.max} kcal).`
-          }<br />
-          <strong>Volume:</strong> weekly training volume load (sets × reps × kg) vs last week.
+            intent === 'cut' ? `days under your max calorie target (${calorieTarget.max} kcal)`
+            : intent === 'bulk' ? `days hitting your calorie minimum (${calorieTarget.min} kcal)`
+            : `days within your calorie range (${calorieTarget.min}–${calorieTarget.max} kcal)`
+          } — full ring = 7/7.<br />
+          <strong>Volume:</strong> this week's training volume (sets × reps × kg) vs last week. Full ring = +10% or more; the midpoint = no change.
         </SectionHeading>
 
         {/* Score rings */}
@@ -472,18 +444,18 @@ export default function Progress() {
 
         {/* Driver expandables */}
         <Card>
-          <div className="text-sm font-medium text-text mb-2">Detail — last 7 days</div>
+          <div className="text-sm font-medium text-text mb-2">Detail — last 30 days</div>
           <div className="divide-y divide-border">
 
             {/* Workouts */}
             <ExpandableRow
               dotColor="#4ade80"
               label="Workouts"
-              value={`${workoutAdherence.daysHit}/7 days`}
+              value={`${workoutAdherence30.daysHit}/30 days`}
             >
-              {/* 7-day dot grid */}
+              {/* 30-day dot grid */}
               <div className="flex flex-wrap gap-1 py-1">
-                {workoutAdherence.results.map((r) => (
+                {workoutAdherence30.results.map((r) => (
                   <span
                     key={r.date}
                     className="w-3 h-3 rounded-sm"
@@ -498,19 +470,19 @@ export default function Progress() {
             <ExpandableRow
               dotColor="#60a5fa"
               label="Protein"
-              value={`${proteinAdherence.daysHit}/7 days`}
+              value={`${proteinAdherence30.daysHit}/30 days`}
             >
               <div style={{ height: 60 }}>
                 <Bar data={buildProteinBars()} options={chartBarOptions} />
               </div>
-              <p className="text-[10px] text-text-muted mt-1">Blue = hit target ({proteinMin}g+), amber = missed</p>
+              <p className="text-[10px] text-text-muted mt-1">Blue = hit target ({proteinMin}g+), amber = missed · last 30 days</p>
             </ExpandableRow>
 
             {/* Calories */}
             <ExpandableRow
               dotColor={goalConfig.calorieRingColor}
               label={goalConfig.calorieRingLabel}
-              value={`${calorieAdherence.daysHit}/7 days`}
+              value={`${calorieAdherence30.daysHit}/30 days`}
             >
               <div style={{ height: 60 }}>
                 <Bar data={buildCalorieBars()} options={chartBarOptions} />

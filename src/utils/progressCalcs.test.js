@@ -25,12 +25,23 @@ describe('linearRegression', () => {
 });
 
 describe('forecastToTarget', () => {
-  it('returns null when fewer than 4 points in last 28 days', () => {
+  it('returns null when fewer than 3 points in last 28 days', () => {
+    const today = new Date();
     const series = [
-      {date:'2026-06-01',value:20},
-      {date:'2026-06-05',value:19.5},
+      { date: new Date(today.getTime() - 10 * 86400000).toISOString().split('T')[0], value: 20 },
+      { date: new Date(today.getTime() - 5 * 86400000).toISOString().split('T')[0], value: 19.5 },
     ];
     expect(forecastToTarget(series, 18)).toBeNull();
+  });
+  it('projects from exactly 3 points trending toward target', () => {
+    const today = new Date();
+    const series = Array.from({ length: 3 }, (_, i) => ({
+      date: new Date(today.getTime() - (16 - i * 7) * 86400000).toISOString().split('T')[0],
+      value: 21 - i * 0.8,  // falling toward 18
+    }));
+    const result = forecastToTarget(series, 18);
+    expect(result).not.toBeNull();
+    expect(result.weeksAway).toBeGreaterThan(0);
   });
   it('returns null when slope moves away from target (BF rising when target below)', () => {
     const today = new Date();
