@@ -41,6 +41,30 @@ describe('rollingConsistency', () => {
     const daily = mkDaily(Array(10).fill(1));
     expect(rollingConsistency(daily).trend).toBeNull();
   });
+
+  it('excludes counts:false days from the denominator (rest days)', () => {
+    // 40 days; in the last 7: 3 scheduled training days, all completed → 100%,
+    // the other 4 are rest (counts:false) and must not drag the score down.
+    const daily = Array.from({ length: 40 }, (_, i) => ({
+      date: `2026-06-${String(i + 1).padStart(2, '0')}`,
+      counts: false,
+      hit: false,
+    }));
+    // last 7 days = indices 33..39; make 33,35,37 scheduled+done
+    [33, 35, 37].forEach((i) => { daily[i] = { ...daily[i], counts: true, hit: true }; });
+    expect(rollingConsistency(daily).score).toBe(100);
+  });
+
+  it('scores completed ÷ scheduled when some scheduled days are missed', () => {
+    const daily = Array.from({ length: 40 }, (_, i) => ({
+      date: `2026-06-${String(i + 1).padStart(2, '0')}`,
+      counts: false,
+      hit: false,
+    }));
+    // last 7: 4 scheduled, 2 completed → 50%
+    [33, 35, 37, 39].forEach((i) => { daily[i] = { ...daily[i], counts: true, hit: i < 37 }; });
+    expect(rollingConsistency(daily).score).toBe(50);
+  });
 });
 
 describe('monthlyConsistencyChange', () => {

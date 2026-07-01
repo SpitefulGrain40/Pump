@@ -15,9 +15,11 @@ import {
 } from 'chart.js';
 import { useWeightHistory } from '../hooks/useWeightHistory';
 import { useUserProfile } from '../hooks/useUserProfile';
-import { useWorkoutLogs } from '../hooks/useWorkoutLogs';
+import { useWorkoutLogs, useWorkoutSchedule } from '../hooks/useWorkoutLogs';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useMeasurementHistory } from '../hooks/useMeasurementHistory';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import { hasCycleTemplate } from '../utils/schedule';
 import {
   getGoalConfig,
   buildBodyFatSeries,
@@ -27,6 +29,7 @@ import {
   forecastToTarget,
   calcWeeklyVolumes,
   workoutDailyHits,
+  workoutScheduleConsistency,
   proteinDailyHits,
   calorieDailyHits,
   rollingConsistency,
@@ -92,6 +95,8 @@ export default function Progress() {
   const { entries: measurementEntries } = useMeasurementHistory();
   const { meals: nutritionLogs } = useNutritionLogs();
   const { logs: workoutLogs } = useWorkoutLogs();
+  const { schedule } = useWorkoutSchedule();
+  const [completedDays] = useLocalStorage('pump-completed-workouts', {});
 
   const intent = profile?.goal?.intent || 'recomp';
   const goalConfig = useMemo(() => getGoalConfig(intent), [intent]);
@@ -188,7 +193,16 @@ export default function Progress() {
   const calorieTarget = profile?.calorieTarget ?? { min: null, max: null };
   const SPAN = 60; // history for the 30-day trend + month-over-month compare
 
-  const workoutHits = useMemo(() => workoutDailyHits(workoutLogs, SPAN), [workoutLogs]);
+  // Prefer measuring workouts against the schedule (completed ÷ scheduled, so
+  // rest days don't count against you). Fall back to days-out-of-window only if
+  // no schedule/cycle is configured at all.
+  const scheduleConfigured = hasCycleTemplate(profile) || Object.keys(schedule || {}).length > 0;
+  const workoutHits = useMemo(
+    () => scheduleConfigured
+      ? workoutScheduleConsistency(workoutLogs, completedDays, profile, schedule, SPAN)
+      : workoutDailyHits(workoutLogs, SPAN),
+    [workoutLogs, completedDays, profile, schedule, scheduleConfigured],
+  );
   const proteinHits = useMemo(() => proteinDailyHits(nutritionLogs, proteinMin, SPAN), [nutritionLogs, proteinMin]);
   const calorieHits = useMemo(() => calorieDailyHits(nutritionLogs, calorieTarget, intent, SPAN), [nutritionLogs, calorieTarget, intent]);
 
@@ -369,7 +383,7 @@ export default function Progress() {
           as you string good days together and dips when you slip. The ▲/▼ under each ring is the
           change vs 30 days ago; expand a row for the 30-day trend and last month's change.
           <br /><br />
-          <strong>Workouts:</strong> days you completed a logged session.<br />
+          <strong>Workouts:</strong> of your <em>scheduled</em> sessions, how many you completed (logged or ticked off). Rest days don't count against you, so following your plan = 100%.<br />
           <strong>Protein:</strong> days you hit your protein minimum ({proteinMin}g) — a day with no food logged counts as a miss.<br />
           <strong>{goalConfig.calorieRingLabel}:</strong> days your calories were {
             intent === 'cut' ? `under ${calorieTarget.max} kcal`

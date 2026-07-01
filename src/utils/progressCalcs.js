@@ -1,4 +1,5 @@
 import { calculateBodyFatNavy, calculateLeanMass } from './calculations';
+import { resolveDaySchedule } from './schedule';
 import { format, startOfWeek, subWeeks, parseISO } from 'date-fns';
 
 // ── Linear regression ──────────────────────────────────────────────────────
@@ -276,6 +277,35 @@ export function workoutDailyHits(workoutLogs, days) {
   return lastNDatesAsc(days).map((date) => ({ date, hit: completed.has(date) }));
 }
 
+// Days whose scheduled session type is a rest/off day — excluded from the
+// workout consistency denominator so rest doesn't count against you.
+const REST_TYPES = new Set(['rest', 'off', 'family', 'none', '']);
+
+function scheduledSessionTypes(entry) {
+  if (!entry) return [];
+  if (typeof entry === 'string') return [entry];
+  const types = [];
+  if (entry.lunch?.type) types.push(entry.lunch.type);
+  if (entry.evening?.type) types.push(entry.evening.type);
+  if (entry.type) types.push(entry.type);
+  return types;
+}
+
+// Workout consistency measured against the schedule: a day counts (denominator)
+// only if it's a scheduled training day; it's a hit if a workout was logged that
+// day OR the scheduled session was ticked complete. Rest/family days are skipped.
+export function workoutScheduleConsistency(workoutLogs, completedDays, profile, schedule, days) {
+  const loggedDone = new Set(workoutLogs.filter((l) => l.completedAt).map((l) => l.date));
+  return lastNDatesAsc(days).map((date) => {
+    const entry = resolveDaySchedule(profile, schedule, date);
+    const isTraining = scheduledSessionTypes(entry).some(
+      (t) => t && !REST_TYPES.has(String(t).toLowerCase()),
+    );
+    const ticked = completedDays?.[date] && Object.values(completedDays[date]).some(Boolean);
+    return { date, counts: isTraining, hit: isTraining && (loggedDone.has(date) || !!ticked) };
+  });
+}
+
 function nutritionByDate(nutritionLogs, field) {
   const byDate = {};
   nutritionLogs.forEach((meal) => {
@@ -310,31 +340,43 @@ export function calorieDailyHits(nutritionLogs, calorieTarget, intent, days) {
   });
 }
 
-// Rolling `window`-day hit rate (0-100%), evaluated across the last `span` days.
+// Rolling `window`-day rate (0-100%), evaluated across the last `span` days.
+// Each daily item is { date, hit, counts? }. `counts` (default true) marks
+// whether the day belongs in the denominator — e.g. rest days are counts:false
+// for workouts, so the rate is completed ÷ scheduled, not ÷ 7. A window with no
+// counted days yields a null rate (rendered as a gap / "no sessions").
 // Returns the current score, the change vs `span` days ago, and the rolling
-// series (for the detail sparkline). `daily` must be oldest→newest and span at
-// least `span + window` days for a trend to be available.
+// series. `daily` must be oldest→newest, spanning ≥ `span + window` days for a
+// trend to be available.
 export function rollingConsistency(daily, window = 7, span = 30) {
   const n = daily.length;
   if (n === 0) return { score: 0, trend: null, series: [] };
 
   const rateAt = (endIdx) => {
     let hits = 0;
+    let counted = 0;
     for (let i = endIdx - window + 1; i <= endIdx; i++) {
-      if (i >= 0 && daily[i].hit) hits += 1;
+      if (i < 0) continue;
+      const counts = daily[i].counts === undefined ? true : !!daily[i].counts;
+      if (!counts) continue;
+      counted += 1;
+      if (daily[i].hit) hits += 1;
     }
-    return (hits / window) * 100;
+    return counted > 0 ? (hits / counted) * 100 : null;
   };
 
   const series = [];
   const startIdx = Math.max(window - 1, n - span);
   for (let i = startIdx; i < n; i++) {
-    series.push({ date: daily[i].date, value: rateAt(i) });
+    const v = rateAt(i);
+    if (v != null) series.push({ date: daily[i].date, value: v });
   }
 
-  const score = rateAt(n - 1);
+  const score = rateAt(n - 1) ?? 0;
   const priorIdx = n - 1 - span;
-  const trend = priorIdx >= window - 1 ? score - rateAt(priorIdx) : null;
+  const priorRate = priorIdx >= window - 1 ? rateAt(priorIdx) : null;
+  const curRate = rateAt(n - 1);
+  const trend = curRate != null && priorRate != null ? curRate - priorRate : null;
   return { score, trend, series };
 }
 
