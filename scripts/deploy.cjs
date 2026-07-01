@@ -17,6 +17,16 @@ const root = path.join(__dirname, '..');
 const distDir = path.join(root, 'dist');
 const docsDir = path.join(root, 'docs');
 
+// Prune stale hashed asset bundles before copying. Vite emits a new content
+// hash per build, so without this docs/assets/ accumulates every old bundle
+// from every past deploy. We only remove docs/assets/ (rebuilt from dist below)
+// — sibling dirs like docs/test/ and docs/superpowers/ are left untouched.
+const docsAssets = path.join(docsDir, 'assets');
+if (fs.existsSync(docsAssets)) {
+  fs.rmSync(docsAssets, { recursive: true, force: true });
+  console.log('✓ pruned stale docs/assets/');
+}
+
 // Copy dist to docs
 fs.cpSync(distDir, docsDir, { recursive: true });
 
