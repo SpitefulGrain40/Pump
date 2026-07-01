@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { EXERCISE_LIBRARY } from '../utils/dataSchemas';
-import { Bar, Line } from 'react-chartjs-2';
+import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -26,9 +26,12 @@ import {
   buildWeightSeries,
   forecastToTarget,
   calcWeeklyVolumes,
-  calcWorkoutAdherence,
-  calcProteinAdherence,
-  calcCalorieAdherence,
+  workoutDailyHits,
+  proteinDailyHits,
+  calorieDailyHits,
+  rollingConsistency,
+  monthlyConsistencyChange,
+  volumeLoadInRange,
   getExercisePRs,
 } from '../utils/progressCalcs';
 import CompositionBar from './progress/CompositionBar';
@@ -180,48 +183,39 @@ export default function Progress() {
   // ── Sub-metrics ───────────────────────────────────────────────────────────
   const subMetricNotes = { weight: goalConfig.weightRowNote };
 
-  // ── Drivers computation ──────────────────────────────────────────────────
-  const workoutAdherence = useMemo(
-    () => calcWorkoutAdherence(workoutLogs, 7),
-    [workoutLogs],
-  );
-
+  // ── Drivers: consistency scores (rolling 7-day tracked over 30 days) ─────
   const proteinMin = profile?.proteinTarget?.min ?? 0;
-  const proteinAdherence = useMemo(
-    () => calcProteinAdherence(nutritionLogs, proteinMin, 7),
-    [nutritionLogs, proteinMin],
-  );
-
   const calorieTarget = profile?.calorieTarget ?? { min: null, max: null };
-  const calorieAdherence = useMemo(
-    () => calcCalorieAdherence(nutritionLogs, calorieTarget, 7, intent),
-    [nutritionLogs, calorieTarget, intent],
-  );
+  const SPAN = 60; // history for the 30-day trend + month-over-month compare
 
-  // 30-day versions power the expandable detail charts (a week is too short to
-  // read a trend); the rings above stay on the 7-day snapshot.
-  const workoutAdherence30 = useMemo(() => calcWorkoutAdherence(workoutLogs, 30), [workoutLogs]);
-  const proteinAdherence30 = useMemo(
-    () => calcProteinAdherence(nutritionLogs, proteinMin, 30),
-    [nutritionLogs, proteinMin],
-  );
-  const calorieAdherence30 = useMemo(
-    () => calcCalorieAdherence(nutritionLogs, calorieTarget, 30, intent),
-    [nutritionLogs, calorieTarget, intent],
-  );
+  const workoutHits = useMemo(() => workoutDailyHits(workoutLogs, SPAN), [workoutLogs]);
+  const proteinHits = useMemo(() => proteinDailyHits(nutritionLogs, proteinMin, SPAN), [nutritionLogs, proteinMin]);
+  const calorieHits = useMemo(() => calorieDailyHits(nutritionLogs, calorieTarget, intent, SPAN), [nutritionLogs, calorieTarget, intent]);
 
+  const workoutScore = useMemo(() => rollingConsistency(workoutHits), [workoutHits]);
+  const proteinScore = useMemo(() => rollingConsistency(proteinHits), [proteinHits]);
+  const calorieScore = useMemo(() => rollingConsistency(calorieHits), [calorieHits]);
+
+  const workoutMonthly = useMemo(() => monthlyConsistencyChange(workoutHits), [workoutHits]);
+  const proteinMonthly = useMemo(() => monthlyConsistencyChange(proteinHits), [proteinHits]);
+  const calorieMonthly = useMemo(() => monthlyConsistencyChange(calorieHits), [calorieHits]);
+
+  // Volume: last 30 days of load vs the previous 30 (progressive overload).
+  const volNow = Date.now();
+  const vol30 = useMemo(() => volumeLoadInRange(workoutLogs, volNow - 30 * 86400000, volNow + 86400000), [workoutLogs]);
+  const volPrev30 = useMemo(() => volumeLoadInRange(workoutLogs, volNow - 60 * 86400000, volNow - 30 * 86400000), [workoutLogs]);
+  const volumeChangePct = volPrev30 > 0 ? Math.round(((vol30 - volPrev30) / volPrev30) * 100) : null;
+  // Ring fill: map −20%..+20% onto 0..100, 50 = no change.
+  const volumeRingValue = Math.max(0, Math.min(100, 50 + (volumeChangePct ?? 0) * 2.5));
+  const volumeDisplayVal = volumeChangePct != null ? `${volumeChangePct > 0 ? '+' : ''}${volumeChangePct}%` : '--';
   const weeklyVolumes = useMemo(() => calcWeeklyVolumes(workoutLogs, 8), [workoutLogs]);
-  const thisWeekVol = weeklyVolumes[weeklyVolumes.length - 1]?.volume ?? 0;
-  const lastWeekVol = weeklyVolumes[weeklyVolumes.length - 2]?.volume ?? 0;
-  const volumeChangePct = lastWeekVol > 0
-    ? Math.round(((thisWeekVol - lastWeekVol) / lastWeekVol) * 100)
-    : null;
 
-  // Volume ring: treat % change as a score. +10% = full ring. cap at ±10%.
-  const volumeRingValue = Math.max(0, Math.min(10, (volumeChangePct ?? 0) + 5));
-  const volumeDisplayVal = volumeChangePct != null
-    ? `${volumeChangePct > 0 ? '+' : ''}${volumeChangePct}%`
-    : '--';
+  // ▲/▼ trend sub-labels. higherBetter=true for all these (more is better).
+  const trendSub = (t) => (t == null ? null : `${t >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(t))}%`);
+  const trendColor = (t) => (t == null || Math.round(t) === 0 ? '#71717a' : t > 0 ? '#4ade80' : '#f87171');
+  const monthlyCaption = (m) => m
+    ? `This month ${Math.round(m.currentPct)}% · ${m.delta >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(m.delta))}% vs last month`
+    : 'A month-over-month change appears once you have two months of history.';
 
   const chartBarOptions = {
     responsive: true,
@@ -232,30 +226,6 @@ export default function Progress() {
       y: { display: false, beginAtZero: true },
     },
   };
-
-  function buildProteinBars() {
-    const results = [...proteinAdherence30.results].reverse();
-    return {
-      labels: results.map((r) => r.date),
-      datasets: [{
-        data: results.map((r) => r.value),
-        backgroundColor: results.map((r) => r.hit ? '#60a5fa' : '#78350f'),
-        borderRadius: 3,
-      }],
-    };
-  }
-
-  function buildCalorieBars() {
-    const results = [...calorieAdherence30.results].reverse();
-    return {
-      labels: results.map((r) => r.date),
-      datasets: [{
-        data: results.map((r) => r.value),
-        backgroundColor: results.map((r) => r.hit ? '#4ade80' : '#7f1d1d'),
-        borderRadius: 3,
-      }],
-    };
-  }
 
   function buildVolumeLineData() {
     return {
@@ -395,112 +365,107 @@ export default function Progress() {
       {/* ── Section 2: Drivers ── */}
       <section>
         <SectionHeading label="Drivers" infoColor="#4ade80">
-          <strong>What's making it happen?</strong> The four habits that drive your results. Each
-          ring scores the <strong>last 7 days</strong>; expand a row for the last 30.
+          <strong>How consistent am I?</strong> Each score is a rolling 7-day average, so it climbs
+          as you string good days together and dips when you slip. The ▲/▼ under each ring is the
+          change vs 30 days ago; expand a row for the 30-day trend and last month's change.
           <br /><br />
-          <strong>Workouts:</strong> days you completed a logged session — full ring = 7/7.<br />
-          <strong>Protein:</strong> days you hit your protein minimum ({proteinMin}g), of the days you logged food — full ring = 7/7.<br />
-          <strong>{goalConfig.calorieRingLabel}:</strong> {
-            intent === 'cut' ? `days under your max calorie target (${calorieTarget.max} kcal)`
-            : intent === 'bulk' ? `days hitting your calorie minimum (${calorieTarget.min} kcal)`
-            : `days within your calorie range (${calorieTarget.min}–${calorieTarget.max} kcal)`
-          } — full ring = 7/7.<br />
-          <strong>Volume:</strong> this week's training volume (sets × reps × kg) vs last week. Full ring = +10% or more; the midpoint = no change.
+          <strong>Workouts:</strong> days you completed a logged session.<br />
+          <strong>Protein:</strong> days you hit your protein minimum ({proteinMin}g) — a day with no food logged counts as a miss.<br />
+          <strong>{goalConfig.calorieRingLabel}:</strong> days your calories were {
+            intent === 'cut' ? `under ${calorieTarget.max} kcal`
+            : intent === 'bulk' ? `over ${calorieTarget.min} kcal`
+            : `within ${calorieTarget.min}–${calorieTarget.max} kcal`
+          } — unlogged days count as a miss.<br />
+          <strong>Volume:</strong> total training load (sets × reps × kg) over the last 30 days vs the previous 30. The ring midpoint = no change.
         </SectionHeading>
 
         {/* Score rings */}
         <Card className="mb-3">
           <div className="grid grid-cols-4 gap-2">
             <ScoreRing
-              value={workoutAdherence.daysHit}
-              max={7}
-              displayValue={`${workoutAdherence.daysHit}/7`}
+              value={workoutScore.score}
+              max={100}
+              displayValue={`${Math.round(workoutScore.score)}%`}
               label="Workouts"
               color="#4ade80"
+              sub={trendSub(workoutScore.trend)}
+              subColor={trendColor(workoutScore.trend)}
             />
             <ScoreRing
-              value={proteinAdherence.daysHit}
-              max={7}
-              displayValue={`${proteinAdherence.daysHit}/7`}
+              value={proteinScore.score}
+              max={100}
+              displayValue={`${Math.round(proteinScore.score)}%`}
               label="Protein"
               color="#60a5fa"
+              sub={trendSub(proteinScore.trend)}
+              subColor={trendColor(proteinScore.trend)}
             />
             <ScoreRing
-              value={calorieAdherence.daysHit}
-              max={7}
-              displayValue={`${calorieAdherence.daysHit}/7`}
+              value={calorieScore.score}
+              max={100}
+              displayValue={`${Math.round(calorieScore.score)}%`}
               label={goalConfig.calorieRingLabel}
               color={goalConfig.calorieRingColor}
+              sub={trendSub(calorieScore.trend)}
+              subColor={trendColor(calorieScore.trend)}
             />
             <ScoreRing
               value={volumeRingValue}
-              max={10}
+              max={100}
               displayValue={volumeDisplayVal}
               label="Volume"
               color="#c084fc"
+              sub={volumeChangePct != null ? 'vs prev 30d' : null}
             />
           </div>
         </Card>
 
         {/* Driver expandables */}
         <Card>
-          <div className="text-sm font-medium text-text mb-2">Detail — last 30 days</div>
+          <div className="text-sm font-medium text-text mb-2">Consistency trend — last 30 days</div>
           <div className="divide-y divide-border">
 
             {/* Workouts */}
             <ExpandableRow
               dotColor="#4ade80"
               label="Workouts"
-              value={`${workoutAdherence30.daysHit}/30 days`}
+              value={`${Math.round(workoutScore.score)}%`}
+              change={trendSub(workoutScore.trend)}
+              changePositive={workoutScore.trend != null ? workoutScore.trend >= 0 : undefined}
             >
-              {/* 30-day dot grid */}
-              <div className="flex flex-wrap gap-1 py-1">
-                {workoutAdherence30.results.map((r) => (
-                  <span
-                    key={r.date}
-                    className="w-3 h-3 rounded-sm"
-                    style={{ background: r.completed ? '#4ade80' : '#2a2a2a' }}
-                    title={r.date}
-                  />
-                ))}
-              </div>
+              <SparklineSVG data={workoutScore.series} color="#4ade80" unit="%" height={56} />
+              <p className="text-[10px] text-text-muted mt-1">{monthlyCaption(workoutMonthly)}</p>
             </ExpandableRow>
 
             {/* Protein */}
             <ExpandableRow
               dotColor="#60a5fa"
               label="Protein"
-              value={`${proteinAdherence30.daysHit}/30 days`}
+              value={`${Math.round(proteinScore.score)}%`}
+              change={trendSub(proteinScore.trend)}
+              changePositive={proteinScore.trend != null ? proteinScore.trend >= 0 : undefined}
             >
-              <div style={{ height: 60 }}>
-                <Bar data={buildProteinBars()} options={chartBarOptions} />
-              </div>
-              <p className="text-[10px] text-text-muted mt-1">Blue = hit target ({proteinMin}g+), amber = missed · last 30 days</p>
+              <SparklineSVG data={proteinScore.series} color="#60a5fa" unit="%" height={56} />
+              <p className="text-[10px] text-text-muted mt-1">{monthlyCaption(proteinMonthly)}</p>
             </ExpandableRow>
 
             {/* Calories */}
             <ExpandableRow
               dotColor={goalConfig.calorieRingColor}
               label={goalConfig.calorieRingLabel}
-              value={`${calorieAdherence30.daysHit}/30 days`}
+              value={`${Math.round(calorieScore.score)}%`}
+              change={trendSub(calorieScore.trend)}
+              changePositive={calorieScore.trend != null ? calorieScore.trend >= 0 : undefined}
             >
-              <div style={{ height: 60 }}>
-                <Bar data={buildCalorieBars()} options={chartBarOptions} />
-              </div>
-              <p className="text-[10px] text-text-muted mt-1">
-                {intent === 'cut'
-                  ? `Green = under ${calorieTarget.max} kcal, red = over`
-                  : intent === 'bulk'
-                  ? `Green = over ${calorieTarget.min} kcal, red = under`
-                  : `Green = within range, red = outside`}
-              </p>
+              <SparklineSVG data={calorieScore.series} color={goalConfig.calorieRingColor} unit="%" height={56} />
+              <p className="text-[10px] text-text-muted mt-1">{monthlyCaption(calorieMonthly)}</p>
             </ExpandableRow>
 
             {/* Volume */}
             <ExpandableRow
               dotColor="#c084fc"
               label="Volume load"
-              value={thisWeekVol.toLocaleString() + ' kg'}
+              value={vol30.toLocaleString() + ' kg'}
               change={volumeChangePct != null ? `${volumeChangePct > 0 ? '+' : ''}${volumeChangePct}%` : undefined}
               changePositive={volumeChangePct != null ? volumeChangePct > 0 : undefined}
             >
@@ -516,7 +481,7 @@ export default function Progress() {
                   }}
                 />
               </div>
-              <p className="text-[10px] text-text-muted mt-1">Weekly volume load (sets × reps × kg). Rising trend = progressive overload.</p>
+              <p className="text-[10px] text-text-muted mt-1">Weekly volume load (sets × reps × kg) over 8 weeks. Last 30 days: {vol30.toLocaleString()} kg vs {volPrev30.toLocaleString()} kg previously.</p>
             </ExpandableRow>
 
           </div>

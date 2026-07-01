@@ -260,6 +260,126 @@ export function calcCalorieAdherence(nutritionLogs, calorieTarget, daysBack, int
   return { daysHit: results.filter((r) => r.hit).length, total: daily.length, results };
 }
 
+// ── Consistency (rolling 7-day, tracked over 30 days) ───────────────────────
+
+function lastNDatesAsc(days) {
+  const dates = [];
+  for (let i = days - 1; i >= 0; i--) {
+    dates.push(new Date(Date.now() - i * 86400000).toISOString().split('T')[0]);
+  }
+  return dates;
+}
+
+// Oldest→newest daily hit series. A day with no logged food counts as a miss.
+export function workoutDailyHits(workoutLogs, days) {
+  const completed = new Set(workoutLogs.filter((l) => l.completedAt).map((l) => l.date));
+  return lastNDatesAsc(days).map((date) => ({ date, hit: completed.has(date) }));
+}
+
+function nutritionByDate(nutritionLogs, field) {
+  const byDate = {};
+  nutritionLogs.forEach((meal) => {
+    const date = meal.timestamp.split('T')[0];
+    byDate[date] = (byDate[date] || 0) + (Number(meal.totals?.[field]) || 0);
+    byDate[date + '_logged'] = true;
+  });
+  return byDate;
+}
+
+export function proteinDailyHits(nutritionLogs, proteinMin, days) {
+  const byDate = nutritionByDate(nutritionLogs, 'protein');
+  return lastNDatesAsc(days).map((date) => ({
+    date,
+    hit: !!byDate[date + '_logged'] && (byDate[date] || 0) >= proteinMin,
+  }));
+}
+
+export function calorieDailyHits(nutritionLogs, calorieTarget, intent, days) {
+  const byDate = nutritionByDate(nutritionLogs, 'calories');
+  const { min, max } = calorieTarget || {};
+  return lastNDatesAsc(days).map((date) => {
+    const logged = !!byDate[date + '_logged'];
+    const cals = byDate[date] || 0;
+    let hit = false;
+    if (logged) {
+      if (intent === 'cut') hit = max != null && cals <= max;
+      else if (intent === 'bulk') hit = min != null && cals >= min;
+      else hit = min != null && max != null && cals >= min && cals <= max;
+    }
+    return { date, hit };
+  });
+}
+
+// Rolling `window`-day hit rate (0-100%), evaluated across the last `span` days.
+// Returns the current score, the change vs `span` days ago, and the rolling
+// series (for the detail sparkline). `daily` must be oldest→newest and span at
+// least `span + window` days for a trend to be available.
+export function rollingConsistency(daily, window = 7, span = 30) {
+  const n = daily.length;
+  if (n === 0) return { score: 0, trend: null, series: [] };
+
+  const rateAt = (endIdx) => {
+    let hits = 0;
+    for (let i = endIdx - window + 1; i <= endIdx; i++) {
+      if (i >= 0 && daily[i].hit) hits += 1;
+    }
+    return (hits / window) * 100;
+  };
+
+  const series = [];
+  const startIdx = Math.max(window - 1, n - span);
+  for (let i = startIdx; i < n; i++) {
+    series.push({ date: daily[i].date, value: rateAt(i) });
+  }
+
+  const score = rateAt(n - 1);
+  const priorIdx = n - 1 - span;
+  const trend = priorIdx >= window - 1 ? score - rateAt(priorIdx) : null;
+  return { score, trend, series };
+}
+
+// Percentage of days hit this calendar month vs the previous one. Null until
+// two calendar months of data exist.
+export function monthlyConsistencyChange(daily) {
+  const byMonth = {};
+  daily.forEach((d) => {
+    const m = d.date.slice(0, 7);
+    if (!byMonth[m]) byMonth[m] = { hits: 0, days: 0 };
+    byMonth[m].days += 1;
+    if (d.hit) byMonth[m].hits += 1;
+  });
+  const months = Object.keys(byMonth).sort();
+  if (months.length < 2) return null;
+  const cur = months[months.length - 1];
+  const prev = months[months.length - 2];
+  const pct = (m) => (byMonth[m].hits / byMonth[m].days) * 100;
+  return { month: cur, delta: pct(cur) - pct(prev), currentPct: pct(cur), prevPct: pct(prev) };
+}
+
+// Total volume load (sets × reps × kg, bodyweight skipped) in [startTs, endTs).
+export function volumeLoadInRange(workoutLogs, startTs, endTs) {
+  return workoutLogs
+    .filter((l) => l.completedAt)
+    .filter((l) => {
+      const t = parseISO(l.date).getTime();
+      return t >= startTs && t < endTs;
+    })
+    .reduce((total, log) => {
+      const exTotal = (log.exercises || []).reduce((exAcc, ex) => {
+        const sets = ex.actual?.sets || [];
+        const weights = ex.actual?.weight || [];
+        const reps = ex.actual?.reps || [];
+        return exAcc + sets.reduce((setAcc, done, i) => {
+          if (!done) return setAcc;
+          const w = Number(weights[i]) || 0;
+          const r = Number(reps[i]) || 0;
+          return w === 0 ? setAcc : setAcc + w * r;
+        }, 0);
+      }, 0);
+      return total + exTotal;
+    }, 0);
+}
+
 // ── Goal config ────────────────────────────────────────────────────────────
 
 const GOAL_CONFIGS = {

@@ -10,7 +10,61 @@ import {
   getGoalConfig,
   buildWeightSeries,
   buildWaistSeries,
+  rollingConsistency,
+  monthlyConsistencyChange,
 } from './progressCalcs';
+
+describe('rollingConsistency', () => {
+  const mkDaily = (hits) =>
+    hits.map((h, i) => ({ date: `2026-06-${String(i + 1).padStart(2, '0')}`, hit: !!h }));
+
+  it('scores a full trailing week at 100%', () => {
+    const daily = mkDaily(Array(40).fill(1));
+    const { score } = rollingConsistency(daily);
+    expect(score).toBe(100);
+  });
+
+  it('scores 3 of the last 7 days at ~43%', () => {
+    const daily = mkDaily([...Array(33).fill(0), 1, 0, 1, 0, 0, 1, 0]);
+    const { score } = rollingConsistency(daily);
+    expect(score).toBeCloseTo((3 / 7) * 100, 5);
+  });
+
+  it('reports a positive trend when recent consistency improves', () => {
+    // first 30 days empty, last 10 all hit → now trending up vs 30 days ago
+    const daily = mkDaily([...Array(30).fill(0), ...Array(10).fill(1)]);
+    const { trend } = rollingConsistency(daily);
+    expect(trend).toBeGreaterThan(0);
+  });
+
+  it('returns null trend when there is not enough history', () => {
+    const daily = mkDaily(Array(10).fill(1));
+    expect(rollingConsistency(daily).trend).toBeNull();
+  });
+});
+
+describe('monthlyConsistencyChange', () => {
+  it('returns null with a single month of data', () => {
+    const daily = Array.from({ length: 10 }, (_, i) => ({
+      date: `2026-06-${String(i + 1).padStart(2, '0')}`,
+      hit: true,
+    }));
+    expect(monthlyConsistencyChange(daily)).toBeNull();
+  });
+
+  it('computes the delta between two months', () => {
+    const may = Array.from({ length: 10 }, (_, i) => ({
+      date: `2026-05-${String(i + 1).padStart(2, '0')}`,
+      hit: i < 5, // 50%
+    }));
+    const jun = Array.from({ length: 10 }, (_, i) => ({
+      date: `2026-06-${String(i + 1).padStart(2, '0')}`,
+      hit: true, // 100%
+    }));
+    const res = monthlyConsistencyChange([...may, ...jun]);
+    expect(res.delta).toBeCloseTo(50, 5);
+  });
+});
 
 describe('linearRegression', () => {
   it('returns correct slope and intercept', () => {
