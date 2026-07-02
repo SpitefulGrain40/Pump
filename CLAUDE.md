@@ -62,7 +62,8 @@ src/
 │   ├── Coach.jsx              # AI chat, command execution, image/URL attachments
 │   ├── Doc.jsx                # AI therapy companion, session memory, prompt editor
 │   ├── Schedule.jsx           # Fortnightly calendar, shift pattern colouring
-│   ├── Progress.jsx           # Goal-aware headline metric + secondary strip, calories, PRs, consistency grid
+│   ├── Progress.jsx           # Three-section goal-adaptive layout: Outcomes / Drivers / Records
+│   ├── progress/              # Progress-tab pieces: CompositionBar, ForecastChart, ScoreRing, InfoToggle, ExpandableRow, SparklineSVG
 │   ├── Settings.jsx           # Profile, Goal (intent + metric + targets), AI config, backup/restore
 │   ├── Nutrition.jsx          # Full nutrition history, date navigation, 7-day averages
 │   ├── MealLogger.jsx         # Meal Builder modal: describe items → AI estimates → log as one meal; photo + portion note
@@ -87,7 +88,9 @@ src/
     ├── dataSchemas.js         # Data structures, default exercise library, workout templates
     ├── calculations.js        # Navy body fat, resolveBodyFat helper
     ├── goal.js                # Two-axis goal model: intents, migration, progress math (tested)
-    └── metrics.js             # Metric descriptor registry: weight/leanmass/bodyfat/waist/strength (tested)
+    ├── metrics.js             # Metric descriptor registry: weight/leanmass/bodyfat/waist/strength (tested)
+    ├── schedule.js            # Cycle position/phase resolution, resolveDaySchedule (tested)
+    └── progressCalcs.js       # Progress-tab pure functions: regression/forecast, series builders, rolling consistency, volume, PRs (tested)
 
 scripts/
 ├── pump-cli-proxy.cjs         # Local dev proxy: routes Coach through claude CLI
@@ -290,9 +293,9 @@ For A/B weekly patterns: standard activity colour coding
 
 ### Image Attachments in Coach
 - Images sent to AI as base64 (multimodal message format)
-- Base64 data stripped before saving to localStorage (prevents 5MB quota errors)
+- Chat history is held in plain `useState` (not `useLocalStorage`) and persisted only via `persistMessages`, which strips base64 images first — a single write path, so images can never be re-persisted back to storage
 - Saved messages get `hadImage: true` as placeholder
-- Images visible in current session (React state) but not persisted
+- Images visible in current session (React state) but not persisted (drop to placeholders on reload)
 
 ### Doc Memory System
 Two-tier memory built on session end:
@@ -367,7 +370,7 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD-HHMMSS`, date **and
 
 ---
 
-## Current State (as of 2026-06-26)
+## Current State (as of 2026-07-02)
 
 ### Completed & Working
 - **Goal-driven dashboard** — two-axis model: training **intent** (cut/recomp/bulk/maintain) + **primary metric** (weight/lean-mass/body-fat/waist/strength). GoalCard hero on Home + Progress, secondary-metric strip, per-metric optional target+date.
@@ -384,14 +387,17 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD-HHMMSS`, date **and
 - Coach AI: command execution, image attachments (camera + gallery), URL fetching, web search, chat search
 - **Quick prompt pills always visible** (horizontal scroll strip) — not just on empty chat
 - Doc AI therapy companion with two-tier session memory (Sonnet 4.6, not Opus)
-- Progress: goal-aware headline metric + secondary strip, categorised PR records, 30-day consistency grid
-- Backup/restore via JSON export
+- **Progress tab (redesigned)** — three goal-adaptive sections, all logic in `utils/progressCalcs.js` with SVG components in `components/progress/`:
+  - **Outcomes** — `CompositionBar` (lean/fat mass stacked bar + body-fat-vs-goal meter, tap a segment for exact figures), `ForecastChart` (single-metric linear-regression projection with axis numbers, labelled goal line, and a plain-language reason when it can't project: no target / <3 measurements in 28 days / trend moving away), and expandable sub-metric sparklines (bodyfat/leanmass/weight/waist) with axis labels + tap-a-point tooltips.
+  - **Drivers — consistency model** — each ring is a rolling 7-day hit rate shown as a %, with a ▲/▼ vs 30 days ago; expand for the 30-day trend line + month-over-month change. **Workouts scored against the schedule** (completed ÷ scheduled sessions via `workoutScheduleConsistency` + `resolveDaySchedule`; rest/family days excluded, falls back to days-in-window when no cycle is configured). Protein/Calories count an unlogged day as a miss. Volume = last-30-days load vs previous 30.
+  - **Records** — exercise PRs grouped by category with Epley estimated 1RM (skipped for single-rep PRs).
+- **Backup/restore** — JSON export/import now includes `pump-measurement-history` and `pump-workout-templates`; import writes each key independently (an oversized `chatHistory` can't abort the restore and bounce the app to onboarding), and base64 chat images are stripped on both export and import to stay under quota
 - Service worker with cache-busting for automatic Android updates
 - Schedule phase colouring for shift workers; mid-workout Coach access
 - Workout logger Finish is **hold-to-confirm** (1.2s fill bar) to avoid accidental completion
 - Coach chat search jumps to the top of results and scrolls through all matches
 - Prompt caching on Anthropic API calls (system prompt cached)
-- **Vitest** unit tests for cycle logic (`utils/schedule.test.js`) and pure logic (`utils/goal.js`, `utils/metrics.js`) — `npm test`
+- **Vitest** unit tests for cycle logic (`utils/schedule.test.js`), goal/metrics pure logic (`utils/goal.js`, `utils/metrics.js`), and Progress-tab maths (`utils/progressCalcs.test.js`) — 69 tests, `npm test`
 - Test deploy workflow (`npm run deploy:test` → `docs/test/` on master)
 
 ### Known Quirks & Limitations
