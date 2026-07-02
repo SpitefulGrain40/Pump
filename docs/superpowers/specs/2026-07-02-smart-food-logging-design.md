@@ -44,6 +44,8 @@ A single localStorage array holding two entity kinds, discriminated by `kind`.
   base: { amount: 100, unit: 'g' },   // or {amount:1, unit:'serving'} / 'scoop' / 'egg' / 'slice'
   calories: 165,                       // PER base unit
   protein: 31,                         // PER base unit
+  carbs: 0,                            // PER base unit
+  fat: 3.6,                            // PER base unit
   source: 'off' | 'cofid' | 'ai' | 'manual',  // provenance, for trust/UI
   barcode: '5000000000000' | null,     // when from OFF barcode
   createdAt, lastUsed, useCount
@@ -57,13 +59,15 @@ A single localStorage array holding two entity kinds, discriminated by `kind`.
   kind: 'meal',
   name: 'My usual breakfast',
   components: [                         // snapshot of scaled items (deterministic)
-    { name, quantity, unit, calories, protein }
+    { name, quantity, unit, calories, protein, carbs, fat }
   ],
   createdAt, lastUsed, useCount
 }
 ```
 
 Meals **snapshot** their items' final macros — editing a food later does not cascade into previously-saved meals. Simple, predictable.
+
+**Four macros:** foods and logged items now carry `calories`, `protein`, `carbs`, `fat`. Carbs/fat are **captured and shown in the logger** (meal breakdown + totals) but do **not** get daily targets, dashboard rings, or Progress surfacing in v1 — see §8. The meal-log `totals` object and `createMealLog` items gain `carbs`/`fat`; existing logs lack them, so every totals reducer treats a missing macro as `0` (back-compatible, no migration).
 
 Both `createLibraryFood` and `createSavedMeal` factories live in `utils/dataSchemas.js` alongside the existing `createMealLog` etc.
 
@@ -75,7 +79,7 @@ Backup/restore (`hooks/useSettings.js`) adds `pump-food-library` to the export o
 
 Follows the established `progressCalcs.js` pattern: all maths in a pure, unit-tested module.
 
-- `scaleFood(food, quantity)` → `{ calories, protein }` = per-base × (quantity ÷ `base.amount`), rounded (reuse the `round1` convention).
+- `scaleFood(food, quantity)` → `{ calories, protein, carbs, fat }` = each per-base macro × (quantity ÷ `base.amount`), rounded (reuse the `round1` convention).
 - `parseFoodInput(text)` → `{ name, quantity?, unit? }`. Extracts an explicit amount+unit from either end of the phrase (`320g roast beef`, `roast beef 320g`, `2 eggs`, `1 scoop whey`) and returns the stripped food name; `{ name }` alone when no quantity is present.
 - `fuzzyMatch(query, library, { limit })` → ranked matches across foods **and** meals. Normalised (lowercase, trim, strip punctuation) token/substring scoring, no external dependency. Tie-break by `useCount` desc then `lastUsed` desc.
 - `labelToBaseFood(labelJson)` → normalises an OFF product or a transcribed label into a `food` entity, **preferring per-100g** as the base, falling back to per-serving.
@@ -89,7 +93,7 @@ Follows the established `progressCalcs.js` pattern: all maths in a pure, unit-te
 ## 3. CoFID dataset (Tier 2, offline generics)
 
 - Source: *Composition of Foods Integrated Dataset* (Public Health England), Open Government Licence v3.0 — free to reuse **with attribution**.
-- Published as Excel (~4.4 MB). A **build-time script** (`scripts/build-cofid.cjs`) converts it to a trimmed static JSON: `{ name, kcalPer100g, proteinPer100g, category }` per food (~2,900 foods). Keeping only name/kcal/protein yields a few hundred KB, far less gzipped.
+- Published as Excel (~4.4 MB). A **build-time script** (`scripts/build-cofid.cjs`) converts it to a trimmed static JSON: `{ name, kcalPer100g, proteinPer100g, carbsPer100g, fatPer100g, category }` per food (~2,900 foods). Four macros + name/category still yields only a few hundred KB, far less gzipped.
 - Output committed to `src/data/cofid.json` (or `public/`), loaded lazily on first generic search. It rides the asset bundle behind the service worker → **works fully offline, never touches the 5 MB localStorage quota.**
 - `utils/cofid.js` exposes `searchCofid(query, { limit })` reusing the same fuzzy-match core as the library.
 - Attribution line added to Settings/About and to the USER_GUIDE.
@@ -99,7 +103,7 @@ Follows the established `progressCalcs.js` pattern: all maths in a pure, unit-te
 ## 4. Open Food Facts (Tiers 1–2, packaged)
 
 - `utils/openFoodFacts.js`:
-  - `lookupBarcode(barcode)` → `GET https://world.openfoodfacts.org/api/v2/product/{barcode}.json`, maps `product.nutriments['energy-kcal_100g']` and `['proteins_100g']` → a per-100g base food. Returns `null` on not-found/no-nutriments.
+  - `lookupBarcode(barcode)` → `GET https://world.openfoodfacts.org/api/v2/product/{barcode}.json`, maps `product.nutriments` `energy-kcal_100g`, `proteins_100g`, `carbohydrates_100g`, `fat_100g` → a per-100g base food. Returns `null` on not-found/no-nutriments.
   - `searchProducts(query)` → OFF text search (Search-a-licious endpoint, since v2 has no server-side full-text). Secondary to CoFID for generics; primary use of OFF is barcode.
 - **Constraints (honest):** browsers can't set OFF's requested custom `User-Agent` (forbidden header) — reads still work; we mitigate by caching results into the library on save and respecting ~15 reads/min. Wrap calls with a small in-memory cache + graceful "couldn't reach Open Food Facts" error that falls through to manual/AI entry. CORS must be re-verified during implementation; if a read is blocked, fall through to the AI/manual path (never hard-fail the log).
 
@@ -125,11 +129,11 @@ This is the single orchestrator; the pure `foodLibrary.js` stays network-free, a
   - No quantity parsed, tap a **food** → opens `QuantitySheet` with the base amount pre-filled.
   - Tap a **saved meal** → inserts all its component items at once.
   - Name resolves but not found in any tier → the whole typed phrase goes to the Tier-4 AI estimate (today's `✓` behaviour).
-- **`components/food/QuantitySheet.jsx`** — base-unit quantity entry (pre-filled with `base.amount`) with a **live scaled preview** of kcal/protein. Confirm → adds the scaled item. No AI call, no guessing.
+- **`components/food/QuantitySheet.jsx`** — base-unit quantity entry (pre-filled with `base.amount`) with a **live scaled preview** of kcal/protein/carbs/fat. Confirm → adds the scaled item. No AI call, no guessing.
 - **Barcode button** — new control alongside camera/gallery. Uses the native `BarcodeDetector` API (Chrome/Android — the real target), with `@zxing/library` as a fallback for unsupported browsers. On scan → `lookupBarcode` → `QuantitySheet` (base 100g) → add item, with one-tap **Save to my foods**.
 - **Photo flow (identify → cross-reference DB → fallback)** — `analyzePhotoWithPortion` is replaced by an **identification-first** pipeline. The photo is an input for *identifying the product*, not the source of the numbers; the database is the source of truth. One combined prompt returns:
   - `type: 'label' | 'packaged' | 'meal'`
-  - For `label`/`packaged`: `barcode` (the digits, if legible in the shot), `brand`, `productName`, plus a transcribed `servingSize` + `per_serving`/`per_100g` as **fallback only**.
+  - For `label`/`packaged`: `barcode` (the digits, if legible in the shot), `brand`, `productName`, plus a transcribed `servingSize` + `per_serving`/`per_100g` (kcal, protein, carbs, fat) as **fallback only**.
   - For `meal`: a list of identified foods + a stated/estimated portion.
 
   The app then **cross-references** (`resolveFromPhoto`, reusing the §2/§4 resolver):
@@ -141,6 +145,8 @@ This is the single orchestrator; the pure `foodLibrary.js` stays network-free, a
   The resolved food opens `QuantitySheet` (base unit) → scales locally → adds. This makes the photo a *lookup key* rather than a calculator — **the direct fix for the wild-label-numbers bug**, since Claude never does the portion arithmetic and, when the product is in the DB, never supplies the numbers at all. "Save to my foods" stores the resolved macros + barcode for instant Tier-3 reuse.
 - **Per-item "Save to my foods"** — captures any confirmed item (AI, label, or manual) into the library as a base-unit food (user sets base amount/unit if not already known).
 - **Footer "Save this meal"** — snapshots the current item list as a `saved meal` with a name prompt.
+
+- **Four-macro display** — item rows and the footer total show kcal / protein / **carbs / fat**. The current 12-col item grid only fits two macro columns, so the row reflows: primary line shows name + kcal + protein, with carbs/fat as a smaller secondary line (or a compact `C·F` sub-row). Each of the four remains tap-to-edit, consistent with today's calories/protein editing. Macros the source didn't provide show `–` rather than a fabricated `0`.
 
 Existing manual-edit-of-macros behaviour is preserved throughout.
 
@@ -169,7 +175,7 @@ Add an 8th client-side tool to Coach's existing tool-use loop (`services/ai/`), 
 
 - Unit conversion (g↔oz, ml↔g density). Base unit is fixed per food.
 - Barcode → OFF *write-back* (contributing missing products upstream).
-- Fat/carbs tracking — Pump tracks kcal + protein only; databases expose more but we map just those two for now.
+- Carbs/fat **targets, dashboard rings, nutrition-history display, Progress drivers, and Coach `[LOG_MEAL]` carbs/fat** — carbs/fat are captured + shown in the logger only (§1). Surfacing them app-wide (with editable targets in Settings) is a clean follow-up since the data is already stored.
 - Meal-photo *multi-item* segmentation (one photo → many items). Still one estimate per photo.
 
 ---
@@ -189,7 +195,8 @@ Add an 8th client-side tool to Coach's existing tool-use loop (`services/ai/`), 
 
 **Edited**
 - `src/components/MealLogger.jsx` — suggestions, quantity sheet, barcode button, photo auto-detect branch, save actions
-- `src/utils/dataSchemas.js` — `createLibraryFood`, `createSavedMeal`
+- `src/utils/dataSchemas.js` — `createLibraryFood`, `createSavedMeal`; `createMealLog` items + `totals` extended with `carbs`/`fat`
+- `src/hooks/useNutritionLogs.js` — totals reducers tolerate missing `carbs`/`fat` (treat as `0`); daily/weekly aggregates unchanged for kcal/protein
 - `src/hooks/useSettings.js` — backup/restore + clear include `pump-food-library`
 - `src/services/ai/*` — `lookup_nutrition` tool
 - `CLAUDE.md`, `USER_GUIDE.md` — new flows, tool count, CoFID/OFF attribution
