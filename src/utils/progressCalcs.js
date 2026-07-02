@@ -1,0 +1,422 @@
+import { calculateBodyFatNavy, calculateLeanMass } from './calculations';
+import { resolveDaySchedule } from './schedule';
+import { format, startOfWeek, subWeeks, parseISO } from 'date-fns';
+
+// ── Linear regression ──────────────────────────────────────────────────────
+
+export function linearRegression(points) {
+  const n = points.length;
+  if (n < 2) return null;
+  const sumX = points.reduce((s, p) => s + p.x, 0);
+  const sumY = points.reduce((s, p) => s + p.y, 0);
+  const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
+  const sumX2 = points.reduce((s, p) => s + p.x * p.x, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  if (denom === 0) return null;
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
+}
+
+// ── Forecast to target ─────────────────────────────────────────────────────
+
+export function forecastToTarget(series, targetValue) {
+  const cutoff = new Date(Date.now() - 28 * 86400000);
+  const recent = series.filter((p) => new Date(p.date) >= cutoff);
+  if (recent.length < 3) return null;
+
+  const sorted = [...recent].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const base = new Date(sorted[0].date).getTime();
+  const points = sorted.map((p) => ({
+    x: (new Date(p.date).getTime() - base) / 86400000,
+    y: p.value,
+  }));
+
+  const reg = linearRegression(points);
+  if (!reg || reg.slope === 0) return null;
+
+  const currentValue = recent[recent.length - 1].value;
+  const movingToward = reg.slope < 0 ? targetValue < currentValue : targetValue > currentValue;
+  if (!movingToward) return null;
+
+  const todayOffset = (Date.now() - base) / 86400000;
+  const interceptDay = (targetValue - reg.intercept) / reg.slope;
+  const daysAway = interceptDay - todayOffset;
+  if (daysAway < 0) return null;
+
+  return {
+    weeksAway: Math.ceil(daysAway / 7),
+    interceptDate: new Date(Date.now() + daysAway * 86400000),
+    slope: reg.slope,
+  };
+}
+
+// ── Series builders ────────────────────────────────────────────────────────
+
+export function buildWeightSeries(weightEntries) {
+  return [...weightEntries]
+    .filter((e) => e.weight != null)
+    .map((e) => ({ date: e.date, value: e.weight }))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+export function buildWaistSeries(measurementEntries) {
+  return [...measurementEntries]
+    .filter((e) => e.waist != null)
+    .map((e) => ({ date: e.date, value: e.waist }))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+export function buildBodyFatSeries(measurementEntries, profile) {
+  return [...measurementEntries]
+    .map((e) => {
+      const navy = calculateBodyFatNavy(
+        profile.gender,
+        profile.height,
+        e.waist ?? profile.waistCircumference,
+        e.neck ?? profile.neckCircumference,
+        e.hip ?? profile.hipCircumference,
+      );
+      const bf =
+        navy && navy > 0 && navy < 60 ? navy
+        : e.bodyFatManual && e.bodyFatManual > 0 && e.bodyFatManual < 60 ? e.bodyFatManual
+        : null;
+      return bf ? { date: e.date, value: bf } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+export function buildLeanMassSeries(weightEntries, measurementEntries, profile) {
+  const bfByDate = {};
+  buildBodyFatSeries(measurementEntries, profile).forEach((p) => {
+    bfByDate[p.date] = p.value;
+  });
+
+  const sortedMeas = Object.keys(bfByDate).sort();
+  const getBF = (date) => {
+    if (bfByDate[date]) return bfByDate[date];
+    const prior = sortedMeas.filter((d) => d <= date).pop();
+    return prior ? bfByDate[prior] : null;
+  };
+
+  return [...weightEntries]
+    .filter((e) => e.weight != null)
+    .map((e) => {
+      const bf = getBF(e.date);
+      if (!bf) return null;
+      const lean = calculateLeanMass(e.weight, bf);
+      return lean ? { date: e.date, value: lean } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+// ── Volume load ────────────────────────────────────────────────────────────
+
+export function calcWeeklyVolumes(workoutLogs, weeksBack) {
+  const result = [];
+  for (let w = 0; w < weeksBack; w++) {
+    const weekStart = startOfWeek(subWeeks(new Date(), w), { weekStartsOn: 1 });
+    const weekStartStr = format(weekStart, 'yyyy-MM-dd');
+    const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
+
+    const volume = workoutLogs
+      .filter((log) => {
+        if (!log.completedAt) return false;
+        const d = parseISO(log.date);
+        return d >= weekStart && d < weekEnd;
+      })
+      .reduce((total, log) => {
+        const exerciseTotal = (log.exercises || []).reduce((exAcc, ex) => {
+          const sets = ex.actual?.sets || [];
+          const weights = ex.actual?.weight || [];
+          const reps = ex.actual?.reps || [];
+          const setTotal = sets.reduce((setAcc, done, i) => {
+            if (!done) return setAcc;
+            const w = Number(weights[i]) || 0;
+            const r = Number(reps[i]) || 0;
+            if (w === 0) return setAcc;
+            return setAcc + w * r;
+          }, 0);
+          return exAcc + setTotal;
+        }, 0);
+        return total + exerciseTotal;
+      }, 0);
+
+    result.unshift({ weekStart: weekStartStr, volume });
+  }
+  return result;
+}
+
+// ── Estimated 1RM (Epley) ──────────────────────────────────────────────────
+
+export function estimateOneRepMax(weight, reps) {
+  if (!weight || weight <= 0) return null;
+  if (!reps || reps <= 1) return null;
+  return Math.round(weight * (1 + reps / 30) * 10) / 10;
+}
+
+// ── Exercise PRs with 1RM ──────────────────────────────────────────────────
+
+export function getExercisePRs(workoutLogs, exerciseLibrary) {
+  const categoryMap = {};
+  (exerciseLibrary || []).forEach((ex) => {
+    categoryMap[ex.name] = ex.category || 'other';
+  });
+
+  const bests = {};
+
+  workoutLogs
+    .filter((log) => log.completedAt)
+    .forEach((log) => {
+      (log.exercises || []).forEach((ex) => {
+        const sets = ex.actual?.sets || [];
+        const weights = ex.actual?.weight || [];
+        const reps = ex.actual?.reps || [];
+        sets.forEach((done, i) => {
+          if (!done) return;
+          const w = Number(weights[i]) || 0;
+          const r = Number(reps[i]) || 0;
+          if (w <= 0) return;
+          if (!bests[ex.name] || w > bests[ex.name].weight) {
+            bests[ex.name] = { weight: w, reps: r, date: log.date };
+          }
+        });
+      });
+    });
+
+  const result = {};
+  Object.entries(bests).forEach(([name, { weight, reps, date }]) => {
+    result[name] = {
+      weight,
+      reps,
+      date,
+      estimatedOneRM: estimateOneRepMax(weight, reps),
+      category: categoryMap[name] || 'other',
+    };
+  });
+  return result;
+}
+
+// ── Consistency (rolling 7-day, tracked over 30 days) ───────────────────────
+
+function lastNDatesAsc(days) {
+  const dates = [];
+  for (let i = days - 1; i >= 0; i--) {
+    dates.push(new Date(Date.now() - i * 86400000).toISOString().split('T')[0]);
+  }
+  return dates;
+}
+
+// Oldest→newest daily hit series. A day with no logged food counts as a miss.
+export function workoutDailyHits(workoutLogs, days) {
+  const completed = new Set(workoutLogs.filter((l) => l.completedAt).map((l) => l.date));
+  return lastNDatesAsc(days).map((date) => ({ date, hit: completed.has(date) }));
+}
+
+// Days whose scheduled session type is a rest/off day — excluded from the
+// workout consistency denominator so rest doesn't count against you.
+const REST_TYPES = new Set(['rest', 'off', 'family', 'none', '']);
+
+function scheduledSessionTypes(entry) {
+  if (!entry) return [];
+  if (typeof entry === 'string') return [entry];
+  const types = [];
+  if (entry.lunch?.type) types.push(entry.lunch.type);
+  if (entry.evening?.type) types.push(entry.evening.type);
+  if (entry.type) types.push(entry.type);
+  return types;
+}
+
+// Workout consistency measured against the schedule: a day counts (denominator)
+// only if it's a scheduled training day; it's a hit if a workout was logged that
+// day OR the scheduled session was ticked complete. Rest/family days are skipped.
+export function workoutScheduleConsistency(workoutLogs, completedDays, profile, schedule, days) {
+  const loggedDone = new Set(workoutLogs.filter((l) => l.completedAt).map((l) => l.date));
+  return lastNDatesAsc(days).map((date) => {
+    const entry = resolveDaySchedule(profile, schedule, date);
+    const isTraining = scheduledSessionTypes(entry).some(
+      (t) => t && !REST_TYPES.has(String(t).toLowerCase()),
+    );
+    const ticked = completedDays?.[date] && Object.values(completedDays[date]).some(Boolean);
+    return { date, counts: isTraining, hit: isTraining && (loggedDone.has(date) || !!ticked) };
+  });
+}
+
+function nutritionByDate(nutritionLogs, field) {
+  const byDate = {};
+  nutritionLogs.forEach((meal) => {
+    const date = meal.timestamp.split('T')[0];
+    byDate[date] = (byDate[date] || 0) + (Number(meal.totals?.[field]) || 0);
+    byDate[date + '_logged'] = true;
+  });
+  return byDate;
+}
+
+export function proteinDailyHits(nutritionLogs, proteinMin, days) {
+  const byDate = nutritionByDate(nutritionLogs, 'protein');
+  return lastNDatesAsc(days).map((date) => ({
+    date,
+    hit: !!byDate[date + '_logged'] && (byDate[date] || 0) >= proteinMin,
+  }));
+}
+
+export function calorieDailyHits(nutritionLogs, calorieTarget, intent, days) {
+  const byDate = nutritionByDate(nutritionLogs, 'calories');
+  const { min, max } = calorieTarget || {};
+  return lastNDatesAsc(days).map((date) => {
+    const logged = !!byDate[date + '_logged'];
+    const cals = byDate[date] || 0;
+    let hit = false;
+    if (logged) {
+      if (intent === 'cut') hit = max != null && cals <= max;
+      else if (intent === 'bulk') hit = min != null && cals >= min;
+      else hit = min != null && max != null && cals >= min && cals <= max;
+    }
+    return { date, hit };
+  });
+}
+
+// Rolling `window`-day rate (0-100%), evaluated across the last `span` days.
+// Each daily item is { date, hit, counts? }. `counts` (default true) marks
+// whether the day belongs in the denominator — e.g. rest days are counts:false
+// for workouts, so the rate is completed ÷ scheduled, not ÷ 7. A window with no
+// counted days yields a null rate (rendered as a gap / "no sessions").
+// Returns the current score, the change vs `span` days ago, and the rolling
+// series. `daily` must be oldest→newest, spanning ≥ `span + window` days for a
+// trend to be available.
+export function rollingConsistency(daily, window = 7, span = 30) {
+  const n = daily.length;
+  if (n === 0) return { score: 0, trend: null, series: [] };
+
+  const rateAt = (endIdx) => {
+    let hits = 0;
+    let counted = 0;
+    for (let i = endIdx - window + 1; i <= endIdx; i++) {
+      if (i < 0) continue;
+      const counts = daily[i].counts === undefined ? true : !!daily[i].counts;
+      if (!counts) continue;
+      counted += 1;
+      if (daily[i].hit) hits += 1;
+    }
+    return counted > 0 ? (hits / counted) * 100 : null;
+  };
+
+  const series = [];
+  const startIdx = Math.max(window - 1, n - span);
+  for (let i = startIdx; i < n; i++) {
+    const v = rateAt(i);
+    if (v != null) series.push({ date: daily[i].date, value: v });
+  }
+
+  const score = rateAt(n - 1) ?? 0;
+  const priorIdx = n - 1 - span;
+  const priorRate = priorIdx >= window - 1 ? rateAt(priorIdx) : null;
+  const curRate = rateAt(n - 1);
+  const trend = curRate != null && priorRate != null ? curRate - priorRate : null;
+  return { score, trend, series };
+}
+
+// Percentage of days hit this calendar month vs the previous one. Null until
+// two calendar months of data exist.
+export function monthlyConsistencyChange(daily) {
+  const byMonth = {};
+  daily.forEach((d) => {
+    const m = d.date.slice(0, 7);
+    if (!byMonth[m]) byMonth[m] = { hits: 0, days: 0 };
+    byMonth[m].days += 1;
+    if (d.hit) byMonth[m].hits += 1;
+  });
+  const months = Object.keys(byMonth).sort();
+  if (months.length < 2) return null;
+  const cur = months[months.length - 1];
+  const prev = months[months.length - 2];
+  const pct = (m) => (byMonth[m].hits / byMonth[m].days) * 100;
+  return { month: cur, delta: pct(cur) - pct(prev), currentPct: pct(cur), prevPct: pct(prev) };
+}
+
+// Total volume load (sets × reps × kg, bodyweight skipped) in [startTs, endTs).
+export function volumeLoadInRange(workoutLogs, startTs, endTs) {
+  return workoutLogs
+    .filter((l) => l.completedAt)
+    .filter((l) => {
+      const t = parseISO(l.date).getTime();
+      return t >= startTs && t < endTs;
+    })
+    .reduce((total, log) => {
+      const exTotal = (log.exercises || []).reduce((exAcc, ex) => {
+        const sets = ex.actual?.sets || [];
+        const weights = ex.actual?.weight || [];
+        const reps = ex.actual?.reps || [];
+        return exAcc + sets.reduce((setAcc, done, i) => {
+          if (!done) return setAcc;
+          const w = Number(weights[i]) || 0;
+          const r = Number(reps[i]) || 0;
+          return w === 0 ? setAcc : setAcc + w * r;
+        }, 0);
+      }, 0);
+      return total + exTotal;
+    }, 0);
+}
+
+// ── Goal config ────────────────────────────────────────────────────────────
+
+const GOAL_CONFIGS = {
+  recomp: {
+    heroArcs: [
+      { metric: 'bodyfat', color: '#60a5fa', label: 'Body fat' },
+      { metric: 'leanmass', color: '#4ade80', label: 'Lean mass' },
+    ],
+    centerLabel: 'bodyfat',
+    forecastMetrics: ['bodyfat', 'leanmass'],
+    subMetricOrder: ['bodyfat', 'leanmass', 'waist', 'weight'],
+    calorieRingColor: '#fbbf24',
+    calorieRingLabel: 'Calories',
+    weightRowNote: 'flat as expected on recomp',
+    showForecastProjection: true,
+  },
+  cut: {
+    heroArcs: [
+      { metric: 'weight', color: '#a1a1aa', label: 'Weight' },
+      { metric: 'bodyfat', color: '#60a5fa', label: 'Body fat' },
+    ],
+    centerLabel: 'weight',
+    forecastMetrics: ['weight', 'bodyfat'],
+    subMetricOrder: ['weight', 'bodyfat', 'waist', 'leanmass'],
+    calorieRingColor: '#f87171',
+    calorieRingLabel: 'Deficit',
+    weightRowNote: null,
+    showForecastProjection: true,
+  },
+  bulk: {
+    heroArcs: [
+      { metric: 'leanmass', color: '#4ade80', label: 'Lean mass' },
+      { metric: 'weight', color: '#a1a1aa', label: 'Weight' },
+    ],
+    centerLabel: 'leanmass',
+    forecastMetrics: ['leanmass', 'weight'],
+    subMetricOrder: ['leanmass', 'weight', 'bodyfat', 'waist'],
+    calorieRingColor: '#4ade80',
+    calorieRingLabel: 'Surplus',
+    weightRowNote: 'rising as expected on a bulk',
+    showForecastProjection: true,
+  },
+  maintain: {
+    heroArcs: [
+      { metric: 'weight', color: '#a1a1aa', label: 'Weight' },
+      { metric: 'bodyfat', color: '#60a5fa', label: 'Body fat' },
+    ],
+    centerLabel: 'weight',
+    forecastMetrics: ['weight', 'bodyfat'],
+    subMetricOrder: ['weight', 'bodyfat', 'leanmass', 'waist'],
+    calorieRingColor: '#fbbf24',
+    calorieRingLabel: 'Calories',
+    weightRowNote: null,
+    showForecastProjection: false,
+  },
+};
+
+export function getGoalConfig(intent) {
+  return GOAL_CONFIGS[intent] || GOAL_CONFIGS.recomp;
+}

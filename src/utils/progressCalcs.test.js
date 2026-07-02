@@ -1,0 +1,240 @@
+import { describe, it, expect } from 'vitest';
+import {
+  linearRegression,
+  forecastToTarget,
+  estimateOneRepMax,
+  calcWeeklyVolumes,
+  getGoalConfig,
+  buildWeightSeries,
+  buildWaistSeries,
+  rollingConsistency,
+  monthlyConsistencyChange,
+} from './progressCalcs';
+
+describe('rollingConsistency', () => {
+  const mkDaily = (hits) =>
+    hits.map((h, i) => ({ date: `2026-06-${String(i + 1).padStart(2, '0')}`, hit: !!h }));
+
+  it('scores a full trailing week at 100%', () => {
+    const daily = mkDaily(Array(40).fill(1));
+    const { score } = rollingConsistency(daily);
+    expect(score).toBe(100);
+  });
+
+  it('scores 3 of the last 7 days at ~43%', () => {
+    const daily = mkDaily([...Array(33).fill(0), 1, 0, 1, 0, 0, 1, 0]);
+    const { score } = rollingConsistency(daily);
+    expect(score).toBeCloseTo((3 / 7) * 100, 5);
+  });
+
+  it('reports a positive trend when recent consistency improves', () => {
+    // first 30 days empty, last 10 all hit → now trending up vs 30 days ago
+    const daily = mkDaily([...Array(30).fill(0), ...Array(10).fill(1)]);
+    const { trend } = rollingConsistency(daily);
+    expect(trend).toBeGreaterThan(0);
+  });
+
+  it('returns null trend when there is not enough history', () => {
+    const daily = mkDaily(Array(10).fill(1));
+    expect(rollingConsistency(daily).trend).toBeNull();
+  });
+
+  it('excludes counts:false days from the denominator (rest days)', () => {
+    // 40 days; in the last 7: 3 scheduled training days, all completed → 100%,
+    // the other 4 are rest (counts:false) and must not drag the score down.
+    const daily = Array.from({ length: 40 }, (_, i) => ({
+      date: `2026-06-${String(i + 1).padStart(2, '0')}`,
+      counts: false,
+      hit: false,
+    }));
+    // last 7 days = indices 33..39; make 33,35,37 scheduled+done
+    [33, 35, 37].forEach((i) => { daily[i] = { ...daily[i], counts: true, hit: true }; });
+    expect(rollingConsistency(daily).score).toBe(100);
+  });
+
+  it('scores completed ÷ scheduled when some scheduled days are missed', () => {
+    const daily = Array.from({ length: 40 }, (_, i) => ({
+      date: `2026-06-${String(i + 1).padStart(2, '0')}`,
+      counts: false,
+      hit: false,
+    }));
+    // last 7: 4 scheduled, 2 completed → 50%
+    [33, 35, 37, 39].forEach((i) => { daily[i] = { ...daily[i], counts: true, hit: i < 37 }; });
+    expect(rollingConsistency(daily).score).toBe(50);
+  });
+});
+
+describe('monthlyConsistencyChange', () => {
+  it('returns null with a single month of data', () => {
+    const daily = Array.from({ length: 10 }, (_, i) => ({
+      date: `2026-06-${String(i + 1).padStart(2, '0')}`,
+      hit: true,
+    }));
+    expect(monthlyConsistencyChange(daily)).toBeNull();
+  });
+
+  it('computes the delta between two months', () => {
+    const may = Array.from({ length: 10 }, (_, i) => ({
+      date: `2026-05-${String(i + 1).padStart(2, '0')}`,
+      hit: i < 5, // 50%
+    }));
+    const jun = Array.from({ length: 10 }, (_, i) => ({
+      date: `2026-06-${String(i + 1).padStart(2, '0')}`,
+      hit: true, // 100%
+    }));
+    const res = monthlyConsistencyChange([...may, ...jun]);
+    expect(res.delta).toBeCloseTo(50, 5);
+  });
+});
+
+describe('linearRegression', () => {
+  it('returns correct slope and intercept', () => {
+    const r = linearRegression([{x:0,y:0},{x:1,y:2},{x:2,y:4}]);
+    expect(r.slope).toBeCloseTo(2);
+    expect(r.intercept).toBeCloseTo(0);
+  });
+  it('returns null for fewer than 2 points', () => {
+    expect(linearRegression([{x:0,y:1}])).toBeNull();
+    expect(linearRegression([])).toBeNull();
+  });
+});
+
+describe('forecastToTarget', () => {
+  it('returns null when fewer than 3 points in last 28 days', () => {
+    const today = new Date();
+    const series = [
+      { date: new Date(today.getTime() - 10 * 86400000).toISOString().split('T')[0], value: 20 },
+      { date: new Date(today.getTime() - 5 * 86400000).toISOString().split('T')[0], value: 19.5 },
+    ];
+    expect(forecastToTarget(series, 18)).toBeNull();
+  });
+  it('projects from exactly 3 points trending toward target', () => {
+    const today = new Date();
+    const series = Array.from({ length: 3 }, (_, i) => ({
+      date: new Date(today.getTime() - (16 - i * 7) * 86400000).toISOString().split('T')[0],
+      value: 21 - i * 0.8,  // falling toward 18
+    }));
+    const result = forecastToTarget(series, 18);
+    expect(result).not.toBeNull();
+    expect(result.weeksAway).toBeGreaterThan(0);
+  });
+  it('returns null when slope moves away from target (BF rising when target below)', () => {
+    const today = new Date();
+    const series = Array.from({length:5},(_,i)=>({
+      date: new Date(today.getTime() - (20-i*4)*86400000).toISOString().split('T')[0],
+      value: 18 + i * 0.3,  // rising
+    }));
+    expect(forecastToTarget(series, 18)).toBeNull();
+  });
+  it('returns weeksAway and interceptDate when trending toward target', () => {
+    const today = new Date();
+    const series = Array.from({length:6},(_,i)=>({
+      date: new Date(today.getTime() - (25-i*4)*86400000).toISOString().split('T')[0],
+      value: 22 - i * 0.6,  // falling toward 18
+    }));
+    const result = forecastToTarget(series, 18);
+    expect(result).not.toBeNull();
+    expect(result.weeksAway).toBeGreaterThan(0);
+    expect(result.interceptDate).toBeInstanceOf(Date);
+  });
+});
+
+describe('estimateOneRepMax', () => {
+  it('returns null for reps === 1', () => {
+    expect(estimateOneRepMax(100, 1)).toBeNull();
+  });
+  it('returns null for weight === 0', () => {
+    expect(estimateOneRepMax(0, 10)).toBeNull();
+  });
+  it('applies Epley formula', () => {
+    // 100 * (1 + 10/30) = 100 * 1.333... = 133.3
+    expect(estimateOneRepMax(100, 10)).toBeCloseTo(133.3, 0);
+  });
+});
+
+describe('calcWeeklyVolumes', () => {
+  it('sums sets*reps*weight for completed sets, skips bodyweight', () => {
+    const today = new Date().toISOString().split('T')[0];
+    const logs = [{
+      date: today,
+      completedAt: new Date().toISOString(),
+      exercises: [{
+        name: 'Bench Press',
+        actual: {
+          sets: [true, true, false],
+          reps: [10, 8, 0],
+          weight: [80, 80, 80],
+        },
+      }, {
+        name: 'Plank',
+        actual: {
+          sets: [true],
+          reps: [30],
+          weight: [0],  // bodyweight — should be skipped
+        },
+      }],
+    }];
+    const vols = calcWeeklyVolumes(logs, 1);
+    expect(vols).toHaveLength(1);
+    // 10*80 + 8*80 = 800 + 640 = 1440
+    expect(vols[0].volume).toBe(1440);
+  });
+  it('ignores non-completed workouts', () => {
+    const today = new Date().toISOString().split('T')[0];
+    const logs = [{
+      date: today,
+      completedAt: null,  // not completed
+      exercises: [{name:'Squat', actual:{sets:[true],reps:[5],weight:[100]}}],
+    }];
+    const vols = calcWeeklyVolumes(logs, 1);
+    expect(vols[0].volume).toBe(0);
+  });
+});
+
+describe('getGoalConfig', () => {
+  it('returns recomp config with BF% first in sub-metric order', () => {
+    const cfg = getGoalConfig('recomp');
+    expect(cfg.subMetricOrder[0]).toBe('bodyfat');
+    expect(cfg.calorieRingLabel).toBe('Calories');
+    expect(cfg.showForecastProjection).toBe(true);
+  });
+  it('returns cut config with weight first in sub-metric order', () => {
+    const cfg = getGoalConfig('cut');
+    expect(cfg.subMetricOrder[0]).toBe('weight');
+    expect(cfg.calorieRingLabel).toBe('Deficit');
+  });
+  it('returns bulk config with lean mass first', () => {
+    const cfg = getGoalConfig('bulk');
+    expect(cfg.subMetricOrder[0]).toBe('leanmass');
+    expect(cfg.calorieRingLabel).toBe('Surplus');
+  });
+  it('returns maintain config with no forecast projection', () => {
+    const cfg = getGoalConfig('maintain');
+    expect(cfg.subMetricOrder[0]).toBe('weight');
+    expect(cfg.showForecastProjection).toBe(false);
+  });
+});
+
+describe('buildWeightSeries', () => {
+  it('maps weight entries to {date, value} sorted ascending', () => {
+    const entries = [
+      {date:'2026-06-10', weight:85},
+      {date:'2026-06-05', weight:86},
+    ];
+    const result = buildWeightSeries(entries);
+    expect(result[0]).toEqual({date:'2026-06-05', value:86});
+    expect(result[1]).toEqual({date:'2026-06-10', value:85});
+  });
+});
+
+describe('buildWaistSeries', () => {
+  it('maps measurement entries with waist to {date, value}', () => {
+    const entries = [
+      {date:'2026-06-01', waist:92, neck:40, hip:null},
+      {date:'2026-06-15', waist:null, neck:40, hip:null},  // no waist — excluded
+    ];
+    const result = buildWaistSeries(entries);
+    expect(result).toHaveLength(1);
+    expect(result[0].value).toBe(92);
+  });
+});

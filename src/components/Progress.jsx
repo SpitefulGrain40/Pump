@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { EXERCISE_LIBRARY } from '../utils/dataSchemas';
-import { Line, Bar } from 'react-chartjs-2';
+import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -13,393 +13,537 @@ import {
   Legend,
   Filler,
 } from 'chart.js';
-import { TrendingDown, Trophy, Flame, Calendar, Settings, ChevronDown, ChevronRight, Target } from 'lucide-react';
 import { useWeightHistory } from '../hooks/useWeightHistory';
 import { useUserProfile } from '../hooks/useUserProfile';
-import { useWorkoutLogs, useWorkoutSchedule, useWorkoutTemplates } from '../hooks/useWorkoutLogs';
+import { useWorkoutLogs, useWorkoutSchedule } from '../hooks/useWorkoutLogs';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
-import { useLocalStorage } from '../hooks/useLocalStorage';
-import { format, subDays, parseISO } from 'date-fns';
-import { getMetric } from '../utils/metrics';
-import { getGoalProgress } from '../utils/goal';
 import { useMeasurementHistory } from '../hooks/useMeasurementHistory';
-import SecondaryMetricStrip from './SecondaryMetricStrip';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import { hasCycleTemplate } from '../utils/schedule';
+import {
+  getGoalConfig,
+  buildBodyFatSeries,
+  buildLeanMassSeries,
+  buildWaistSeries,
+  buildWeightSeries,
+  forecastToTarget,
+  calcWeeklyVolumes,
+  workoutDailyHits,
+  workoutScheduleConsistency,
+  proteinDailyHits,
+  calorieDailyHits,
+  rollingConsistency,
+  monthlyConsistencyChange,
+  volumeLoadInRange,
+  getExercisePRs,
+} from '../utils/progressCalcs';
+import CompositionBar from './progress/CompositionBar';
+import ForecastChart from './progress/ForecastChart';
+import ScoreRing from './progress/ScoreRing';
+import InfoToggle from './progress/InfoToggle';
+import ExpandableRow from './progress/ExpandableRow';
+import SparklineSVG from './progress/SparklineSVG';
 
 ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
+  CategoryScale, LinearScale, PointElement, LineElement,
+  BarElement, Title, Tooltip, Legend, Filler,
 );
 
-const chartOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: { display: false },
-  },
-  scales: {
-    x: {
-      grid: { color: '#1f1f1f' },
-      ticks: { color: '#a1a1aa', font: { size: 10 } },
-    },
-    y: {
-      grid: { color: '#1f1f1f' },
-      ticks: { color: '#a1a1aa', font: { size: 10 } },
-    },
-  },
+const METRIC_COLORS = {
+  bodyfat: '#60a5fa',
+  leanmass: '#4ade80',
+  weight: '#a1a1aa',
+  waist: '#f472b6',
 };
 
-export default function Progress({ onNavigate }) {
-  const { entries: weightEntries } = useWeightHistory();
+const METRIC_LABELS = {
+  bodyfat: 'Body fat %',
+  leanmass: 'Lean mass',
+  weight: 'Weight',
+  waist: 'Waist',
+};
+
+const METRIC_UNITS = {
+  bodyfat: '%',
+  leanmass: ' kg',
+  weight: ' kg',
+  waist: ' cm',
+};
+
+function SectionHeading({ label, infoColor, children }) {
+  return (
+    <div className="mb-3">
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider">{label}</h2>
+        <InfoToggle id={label} color={infoColor}>{children}</InfoToggle>
+      </div>
+    </div>
+  );
+}
+
+function Card({ children, className = '' }) {
+  return (
+    <div className={`bg-surface-light rounded-xl p-4 ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+export default function Progress() {
+  const { entries: weightHistory } = useWeightHistory();
   const { profile } = useUserProfile();
-  const { getAllPRs } = useWorkoutLogs();
+  const { entries: measurementEntries } = useMeasurementHistory();
+  const { meals: nutritionLogs } = useNutritionLogs();
+  const { logs: workoutLogs } = useWorkoutLogs();
   const { schedule } = useWorkoutSchedule();
-  const { templates } = useWorkoutTemplates();
-  const { getDailyTotals } = useNutritionLogs();
   const [completedDays] = useLocalStorage('pump-completed-workouts', {});
 
-  const { entries: measurementHistory } = useMeasurementHistory();
-  const prs = getAllPRs();
+  const intent = profile?.goal?.intent || 'recomp';
+  const goalConfig = useMemo(() => getGoalConfig(intent), [intent]);
+  const targets = profile?.goal?.targets || {};
 
-  const metricData = { weightHistory: weightEntries, measurementHistory, prs };
-  const goal = profile.goal || { intent: 'maintain', primaryMetric: 'weight', targets: {} };
-  const primaryMetric = getMetric(goal.primaryMetric);
-  const primarySeries = primaryMetric.getSeries(profile, metricData);
-  const primaryCurrent = primaryMetric.getCurrent(profile, metricData);
-  const primaryTarget = primaryMetric.supportsTarget ? (goal.targets?.[goal.primaryMetric] || {}) : {};
-  const primaryChange = (primaryCurrent != null && primarySeries.length >= 2)
-    ? Math.round((primaryCurrent - primarySeries[0].value) * 10) / 10
+  // ── Build series ────────────────────────────────────────────────────────
+  const bfSeries = useMemo(
+    () => buildBodyFatSeries(measurementEntries, profile || {}),
+    [measurementEntries, profile],
+  );
+  const leanSeries = useMemo(
+    () => buildLeanMassSeries(weightHistory, measurementEntries, profile || {}),
+    [weightHistory, measurementEntries, profile],
+  );
+  const waistSeries = useMemo(() => buildWaistSeries(measurementEntries), [measurementEntries]);
+  const weightSeries = useMemo(() => buildWeightSeries(weightHistory), [weightHistory]);
+
+  const seriesByMetric = { bodyfat: bfSeries, leanmass: leanSeries, waist: waistSeries, weight: weightSeries };
+
+  // ── Latest values ───────────────────────────────────────────────────────
+  const latest = (series) => series[series.length - 1]?.value ?? null;
+  const first = (series) => series[0]?.value ?? null;
+  const latestBF = latest(bfSeries);
+  const latestLean = latest(leanSeries);
+  const latestWeight = latest(weightSeries);
+
+  // ── Composition card (lean/fat split + body-fat goal meter) ──────────────
+  const bodyFatGoal = targets.bodyfat?.value ?? null;
+  const leanFirst = first(leanSeries);
+  const leanDeltaStr = (latestLean != null && leanFirst != null)
+    ? `${latestLean - leanFirst >= 0 ? '+' : ''}${(latestLean - leanFirst).toFixed(1)} kg`
     : null;
-  const primaryProgress = (primaryMetric.supportsTarget && primaryTarget.value != null && primaryCurrent != null)
-    ? getGoalProgress({ start: primarySeries.length ? primarySeries[0].value : primaryCurrent, current: primaryCurrent, target: primaryTarget.value })
-    : { percent: null };
-  const unitSuffix = primaryMetric.unit === '%' ? '' : ' ' + primaryMetric.unit;
-  const last14Primary = primarySeries.slice(-14);
-  const primaryChartData = {
-    labels: last14Primary.map((p) => format(parseISO(p.date), 'MMM d')),
-    datasets: [
-      { label: primaryMetric.label, data: last14Primary.map((p) => p.value), borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#22c55e' },
-      ...(primaryTarget.value != null
-        ? [{ label: 'Target', data: last14Primary.map(() => primaryTarget.value), borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0 }]
-        : []),
-    ],
+
+  // ── Forecast (primary metric only — a single, meaningful y-axis) ─────────
+  const primaryMetric = goalConfig.forecastMetrics[0];
+  const primaryTarget = targets[primaryMetric]?.value ?? null;
+  const primaryForecast = useMemo(
+    () => primaryTarget ? forecastToTarget(seriesByMetric[primaryMetric], primaryTarget) : null,
+    [bfSeries, leanSeries, weightSeries, primaryMetric, primaryTarget],
+  );
+
+  function buildProjected(series, forecast) {
+    if (!forecast || !goalConfig.showForecastProjection) return null;
+    const last = series[series.length - 1];
+    if (!last) return null;
+    const points = [];
+    for (let d = 0; d <= 63; d += 7) {
+      const date = new Date(Date.now() + d * 86400000).toISOString().split('T')[0];
+      points.push({ date, value: last.value + forecast.slope * d });
+    }
+    return points;
+  }
+
+  const forecastPrimary = {
+    historical: seriesByMetric[primaryMetric].filter(
+      (p) => new Date(p.date) >= new Date(Date.now() - 56 * 86400000),
+    ),
+    projected: buildProjected(seriesByMetric[primaryMetric], primaryForecast),
+    color: METRIC_COLORS[primaryMetric],
+    goalValue: primaryTarget,
+    interceptDate: primaryForecast?.interceptDate ?? null,
+    weeksToGoal: primaryForecast?.weeksAway ?? null,
   };
 
-  const calorieChartData = useMemo(() => {
-    const days = [];
-    for (let i = 13; i >= 0; i--) {
-      const date = subDays(new Date(), i);
-      const totals = getDailyTotals(date);
-      days.push({
-        date: format(date, 'MMM d'),
-        calories: totals.calories,
-      });
-    }
+  const forecastUnit = primaryMetric === 'bodyfat' ? '%' : ' kg';
+  const forecastGoalLabelText = primaryMetric === 'bodyfat'
+    ? METRIC_LABELS[primaryMetric].replace('%', '').trim().toLowerCase()
+    : METRIC_LABELS[primaryMetric].toLowerCase();
+  const forecastGoalLabel = primaryTarget
+    ? `${primaryTarget}${forecastUnit} ${forecastGoalLabelText}`
+    : '';
 
+  // Explain WHY there's no projection, when there isn't one.
+  const recentPrimaryCount = seriesByMetric[primaryMetric].filter(
+    (p) => new Date(p.date) >= new Date(Date.now() - 28 * 86400000),
+  ).length;
+  let noForecastReason = null;
+  if (!goalConfig.showForecastProjection) {
+    noForecastReason = 'Trend only — holding steady is the goal on maintain.';
+  } else if (primaryTarget == null) {
+    noForecastReason = `Set a ${forecastGoalLabelText} target in Settings to see your forecast.`;
+  } else if (recentPrimaryCount < 3) {
+    const need = 3 - recentPrimaryCount;
+    noForecastReason = `Log ${need} more measurement${need > 1 ? 's' : ''} in the last month to project a forecast.`;
+  } else if (!primaryForecast) {
+    noForecastReason = 'Your recent trend is flat or moving away from your goal — no forecast yet.';
+  }
+
+  // ── Sub-metrics ───────────────────────────────────────────────────────────
+  const subMetricNotes = { weight: goalConfig.weightRowNote };
+
+  // ── Drivers: consistency scores (rolling 7-day tracked over 30 days) ─────
+  const proteinMin = profile?.proteinTarget?.min ?? 0;
+  const calorieTarget = profile?.calorieTarget ?? { min: null, max: null };
+  const SPAN = 60; // history for the 30-day trend + month-over-month compare
+
+  // Prefer measuring workouts against the schedule (completed ÷ scheduled, so
+  // rest days don't count against you). Fall back to days-out-of-window only if
+  // no schedule/cycle is configured at all.
+  const scheduleConfigured = hasCycleTemplate(profile) || Object.keys(schedule || {}).length > 0;
+  const workoutHits = useMemo(
+    () => scheduleConfigured
+      ? workoutScheduleConsistency(workoutLogs, completedDays, profile, schedule, SPAN)
+      : workoutDailyHits(workoutLogs, SPAN),
+    [workoutLogs, completedDays, profile, schedule, scheduleConfigured],
+  );
+  const proteinHits = useMemo(() => proteinDailyHits(nutritionLogs, proteinMin, SPAN), [nutritionLogs, proteinMin]);
+  const calorieHits = useMemo(() => calorieDailyHits(nutritionLogs, calorieTarget, intent, SPAN), [nutritionLogs, calorieTarget, intent]);
+
+  const workoutScore = useMemo(() => rollingConsistency(workoutHits), [workoutHits]);
+  const proteinScore = useMemo(() => rollingConsistency(proteinHits), [proteinHits]);
+  const calorieScore = useMemo(() => rollingConsistency(calorieHits), [calorieHits]);
+
+  const workoutMonthly = useMemo(() => monthlyConsistencyChange(workoutHits), [workoutHits]);
+  const proteinMonthly = useMemo(() => monthlyConsistencyChange(proteinHits), [proteinHits]);
+  const calorieMonthly = useMemo(() => monthlyConsistencyChange(calorieHits), [calorieHits]);
+
+  // Volume: last 30 days of load vs the previous 30 (progressive overload).
+  const volNow = Date.now();
+  const vol30 = useMemo(() => volumeLoadInRange(workoutLogs, volNow - 30 * 86400000, volNow + 86400000), [workoutLogs]);
+  const volPrev30 = useMemo(() => volumeLoadInRange(workoutLogs, volNow - 60 * 86400000, volNow - 30 * 86400000), [workoutLogs]);
+  const volumeChangePct = volPrev30 > 0 ? Math.round(((vol30 - volPrev30) / volPrev30) * 100) : null;
+  // Ring fill: map −20%..+20% onto 0..100, 50 = no change.
+  const volumeRingValue = Math.max(0, Math.min(100, 50 + (volumeChangePct ?? 0) * 2.5));
+  const volumeDisplayVal = volumeChangePct != null ? `${volumeChangePct > 0 ? '+' : ''}${volumeChangePct}%` : '--';
+  const weeklyVolumes = useMemo(() => calcWeeklyVolumes(workoutLogs, 8), [workoutLogs]);
+
+  // ▲/▼ trend sub-labels. higherBetter=true for all these (more is better).
+  const trendSub = (t) => (t == null ? null : `${t >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(t))}%`);
+  const trendColor = (t) => (t == null || Math.round(t) === 0 ? '#71717a' : t > 0 ? '#4ade80' : '#f87171');
+  const monthlyCaption = (m) => m
+    ? `This month ${Math.round(m.currentPct)}% · ${m.delta >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(m.delta))}% vs last month`
+    : 'A month-over-month change appears once you have two months of history.';
+
+  const chartBarOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    scales: {
+      x: { display: false },
+      y: { display: false, beginAtZero: true },
+    },
+  };
+
+  function buildVolumeLineData() {
     return {
-      labels: days.map((d) => d.date),
-      datasets: [
-        {
-          label: 'Calories',
-          data: days.map((d) => d.calories),
-          backgroundColor: days.map((d) => {
-            if (d.calories === 0) return '#1f1f1f';
-            if (d.calories < profile.calorieTarget.min) return '#3b82f6';
-            if (d.calories <= profile.calorieTarget.max) return '#22c55e';
-            return '#ef4444';
-          }),
-          borderRadius: 4,
-        },
-      ],
+      labels: weeklyVolumes.map((w) => w.weekStart),
+      datasets: [{
+        data: weeklyVolumes.map((w) => w.volume),
+        borderColor: '#c084fc',
+        backgroundColor: 'rgba(192,132,252,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointBackgroundColor: '#c084fc',
+      }],
     };
-  }, [getDailyTotals, profile.calorieTarget]);
+  }
 
-  const prList = Object.entries(prs)
-    .map(([name, data]) => ({ name, ...data }))
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  // ── Records computation ───────────────────────────────────────────────────
+  const exercisePRs = useMemo(
+    () => getExercisePRs(workoutLogs, EXERCISE_LIBRARY),
+    [workoutLogs],
+  );
 
-  // Map a workout-template key (e.g. "push", "bike", "shoulders") to a PR
-  // category. Custom exercises don't have a category field, but they do live
-  // inside a template — Coach naturally adds push exercises to the push
-  // template etc. So if an exercise is in a template, we infer its category
-  // from the template name. This means user-added exercises categorise
-  // automatically with no extra config — they just need to be added via
-  // Coach's UPDATE_TEMPLATE command (which Coach does by default).
-  const templateToCategory = (key) => {
-    const k = String(key || '').toLowerCase();
-    if (k.includes('push') || k.includes('chest') || k.includes('shoulder')) return 'push';
-    if (k.includes('pull') || k.includes('back') || k.includes('bicep')) return 'pull';
-    if (k.includes('leg') || k.includes('quad') || k.includes('squat') || k.includes('glute') || k.includes('hamstring')) return 'legs';
-    if (k.includes('core') || k.includes('abs') || k.includes('ab')) return 'core';
-    if (k.includes('bike') || k.includes('cardio') || k.includes('skate') || k.includes('run') || k === 'active') return 'cardio';
-    return null;
-  };
-
-  // Categorise PRs by: 1) hardcoded EXERCISE_LIBRARY, 2) custom-template
-  // membership (auto-inferred), 3) fallback to "Other".
-  const categorisedPRs = useMemo(() => {
-    const lookup = Object.fromEntries(EXERCISE_LIBRARY.map((e) => [e.name, e.category]));
-
-    // Overlay categories from user's workout templates — exercises Coach added
-    // via UPDATE_TEMPLATE land here. Library entries take precedence (don't
-    // overwrite known exercises with template-inferred categories).
-    for (const [tmplKey, tmpl] of Object.entries(templates || {})) {
-      const cat = templateToCategory(tmplKey);
-      if (!cat) continue;
-      for (const ex of tmpl?.exercises || []) {
-        if (ex?.name && !lookup[ex.name]) lookup[ex.name] = cat;
-      }
-    }
-
-    const groups = { push: [], pull: [], legs: [], core: [], cardio: [], other: [] };
-    for (const pr of prList) {
-      if (!Number.isFinite(Number(pr.weight)) || Number(pr.weight) <= 0) continue;
-      const cat = lookup[pr.name] || 'other';
-      (groups[cat] || groups.other).push(pr);
-    }
-    // Sort each group by weight DESC so "top 5" is the heaviest 5.
-    for (const k of Object.keys(groups)) {
-      groups[k].sort((a, b) => Number(b.weight) - Number(a.weight));
-    }
-    return groups;
-  }, [prList, templates]);
-
-  const CATEGORY_LABELS = { push: 'Push', pull: 'Pull', legs: 'Legs', core: 'Core', cardio: 'Cardio', other: 'Other' };
   const CATEGORY_ORDER = ['push', 'pull', 'legs', 'core', 'cardio', 'other'];
-  const [expandedCats, setExpandedCats] = useState({});
-  const toggleCat = (k) => setExpandedCats((s) => ({ ...s, [k]: !s[k] }));
 
-  const workoutDays = useMemo(() => {
-    const last30 = [];
-    for (let i = 29; i >= 0; i--) {
-      const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
-      const daySchedule = schedule[date];
-      const dayCompleted = completedDays[date];
-
-      // Check if this day had a workout scheduled (not rest/family)
-      const hasScheduledWorkout = daySchedule && (
-        (daySchedule.lunch?.type && !['rest', 'family'].includes(daySchedule.lunch.type)) ||
-        (daySchedule.evening?.type && !['rest', 'family'].includes(daySchedule.evening.type))
-      );
-
-      // Check if any session was completed
-      const hasCompletedWorkout = dayCompleted?.lunch || dayCompleted?.evening;
-
-      last30.push({
-        date,
-        hasWorkout: hasCompletedWorkout,
-        wasScheduled: hasScheduledWorkout
-      });
-    }
-    return last30;
-  }, [completedDays, schedule]);
-
-  const completedCount = useMemo(() => {
-    return workoutDays.filter(d => d.hasWorkout).length;
-  }, [workoutDays]);
-
-  const streak = useMemo(() => {
-    let count = 0;
-    for (let i = workoutDays.length - 1; i >= 0; i--) {
-      if (workoutDays[i].hasWorkout) count++;
-      else if (count > 0) break;
-    }
-    return count;
-  }, [workoutDays]);
+  const prsByCategory = useMemo(() => {
+    const groups = {};
+    Object.entries(exercisePRs).forEach(([name, pr]) => {
+      const cat = pr.category || 'other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push({ name, ...pr });
+    });
+    // Sort each category by PR weight descending
+    Object.values(groups).forEach((arr) => arr.sort((a, b) => b.weight - a.weight));
+    return groups;
+  }, [exercisePRs]);
 
   return (
-    <div className="p-4 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Progress</h1>
-        <button
-          onClick={() => onNavigate?.('settings')}
-          className="p-2 bg-surface rounded-lg text-text-muted"
-        >
-          <Settings size={20} />
-        </button>
+    <div className="p-4 space-y-6 pb-24">
+
+      {/* Page header — consistent with the other tabs */}
+      <div>
+        <h1 className="text-2xl font-bold text-text">Progress</h1>
+        <p className="text-text-muted text-sm">Outcomes, drivers, and records</p>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-surface rounded-xl p-4">
+      {/* ── Section 1: Outcomes ── */}
+      <section>
+        <SectionHeading label="Outcomes" infoColor="#60a5fa">
+          <strong>Is it working?</strong> This section tracks your body composition over time.
+          The bar shows your current lean mass vs fat mass split; the meter tracks body fat
+          against your goal. The forecast projects your trend using linear regression on your
+          recent measurements. Body fat % uses the US Navy formula from your measurement history.
+        </SectionHeading>
+
+        {/* Composition card */}
+        <Card className="mb-3">
+          <CompositionBar
+            weight={latestWeight}
+            leanMass={latestLean}
+            bodyFatPct={latestBF}
+            bodyFatGoal={bodyFatGoal}
+            leanChange={leanDeltaStr}
+          />
+        </Card>
+
+        {/* Forecast chart */}
+        <Card className="mb-3">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm font-medium text-text">
+              {goalConfig.showForecastProjection && primaryTarget
+                ? `Forecast to ${forecastGoalLabel}`
+                : 'Trend'}
+            </span>
+            <InfoToggle id="forecast" color="#60a5fa">
+              The solid line is your actual {forecastGoalLabelText}; the dashed line projects it
+              forward using linear regression on the last 4 weeks. The filled dot marks where your
+              trend meets your goal. Needs at least 3 measurements in the last month — and only
+              projects when your trend is actually heading toward your goal.
+            </InfoToggle>
+          </div>
+          <ForecastChart
+            primarySeries={forecastPrimary}
+            showProjection={goalConfig.showForecastProjection}
+            goalLabel={forecastGoalLabel}
+            unit={forecastUnit}
+            noForecastReason={noForecastReason}
+          />
+        </Card>
+
+        {/* Sub-metric expandables */}
+        <Card>
           <div className="flex items-center gap-2 mb-2">
-            <Target size={18} className="text-accent" />
-            <span className="text-sm text-text-muted">{primaryMetric.label}</span>
+            <span className="text-sm font-medium text-text">Sub-metrics</span>
+            <InfoToggle id="sub-metrics" color="#a1a1aa">
+              All weights in kg. Body fat % uses the US Navy formula from waist, neck, and hip
+              measurements. Lean mass = weight × (1 − body fat%). Tap any row to see the last 8
+              weeks — then tap a point on the chart for its exact date and value.
+            </InfoToggle>
           </div>
-          <div className="text-2xl font-bold text-accent">
-            {primaryCurrent != null ? `${primaryCurrent}${unitSuffix}` : '—'}
-          </div>
-          <div className="text-xs text-text-muted">
-            {primaryProgress.percent != null
-              ? `${primaryProgress.percent}% to goal`
-              : primaryChange != null
-                ? `${primaryChange >= 0 ? '+' : ''}${primaryChange}${primaryMetric.unit === '%' ? '%' : primaryMetric.unit} since start`
-                : 'Tracking'}
-          </div>
-        </div>
+          <div className="divide-y divide-border">
+            {goalConfig.subMetricOrder.map((metric) => {
+              const series = seriesByMetric[metric];
+              const val = latest(series);
+              const prev = series.length >= 2 ? series[series.length - 2]?.value : null;
+              const change = val != null && prev != null ? val - prev : null;
+              const positiveChange =
+                metric === 'bodyfat' || metric === 'waist' ? change < 0 : change > 0;
+              const displayChange = change != null
+                ? `${change > 0 ? '+' : ''}${change.toFixed(1)}${METRIC_UNITS[metric]}`
+                : null;
+              const bfGoal = metric === 'bodyfat' ? targets.bodyfat?.value : null;
 
-        <div className="bg-surface rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Calendar size={18} className="text-info" />
-            <span className="text-sm text-text-muted">Streak</span>
-          </div>
-          <div className="text-2xl font-bold text-info">{streak} days</div>
-          <div className="text-xs text-text-muted">{completedCount} workouts this month</div>
-        </div>
-      </div>
-
-      {/* Primary metric trend */}
-      <div className="bg-surface rounded-xl p-4">
-        <h3 className="font-medium mb-3 flex items-center gap-2">
-          <TrendingDown size={18} className="text-accent" />
-          {primaryMetric.label} Trend
-        </h3>
-        <div className="h-48">
-          {primarySeries.length > 0 ? (
-            <Line data={primaryChartData} options={chartOptions} />
-          ) : (
-            <div className="h-full flex items-center justify-center text-text-muted text-sm text-center px-4">
-              {goal.primaryMetric === 'leanmass'
-                ? 'Log weight + body-fat measurements to see lean mass.'
-                : `Log ${primaryMetric.label.toLowerCase()} data to see your trend.`}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Other metrics at a glance */}
-      <SecondaryMetricStrip profile={profile} data={metricData} />
-
-      {/* Calorie Chart */}
-      <div className="bg-surface rounded-xl p-4">
-        <h3 className="font-medium mb-3 flex items-center gap-2">
-          <Flame size={18} className="text-warning" />
-          Daily Calories (14 days)
-        </h3>
-        <div className="h-40">
-          <Bar data={calorieChartData} options={{
-            ...chartOptions,
-            scales: {
-              ...chartOptions.scales,
-              y: {
-                ...chartOptions.scales.y,
-                min: 0,
-                max: 3500,
-              },
-            },
-          }} />
-        </div>
-        <div className="flex justify-center gap-4 mt-2 text-xs text-text-muted">
-          <span className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded bg-[#22c55e]" /> In range
-          </span>
-          <span className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded bg-[#3b82f6]" /> Under
-          </span>
-          <span className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded bg-[#ef4444]" /> Over
-          </span>
-        </div>
-      </div>
-
-      {/* Workout Calendar */}
-      <div className="bg-surface rounded-xl p-4">
-        <h3 className="font-medium mb-3 flex items-center gap-2">
-          <Calendar size={18} className="text-info" />
-          Workout Consistency (30 days)
-        </h3>
-        <div className="grid grid-cols-10 gap-1">
-          {workoutDays.map((day, i) => (
-            <div
-              key={i}
-              title={`${day.date}${day.hasWorkout ? ' ✓' : day.wasScheduled ? ' ✗' : ''}`}
-              className={`aspect-square rounded-sm ${
-                day.hasWorkout
-                  ? 'bg-accent'
-                  : day.wasScheduled
-                    ? 'bg-danger/50'
-                    : 'bg-border'
-              }`}
-            />
-          ))}
-        </div>
-        <div className="flex justify-center gap-4 mt-2 text-xs text-text-muted">
-          <span className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded bg-accent" /> Completed
-          </span>
-          <span className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded bg-danger/50" /> Missed
-          </span>
-          <span className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded bg-border" /> Rest
-          </span>
-        </div>
-      </div>
-
-      {/* PR List — categorised, top 5 per group with expand */}
-      <div className="bg-surface rounded-xl p-4">
-        <h3 className="font-medium mb-3 flex items-center gap-2">
-          <Trophy size={18} className="text-warning" />
-          Personal Records
-        </h3>
-        {prList.length > 0 ? (
-          <div className="space-y-3">
-            {CATEGORY_ORDER.map((cat) => {
-              const items = categorisedPRs[cat] || [];
-              if (items.length === 0) return null;
-              const isOpen = !!expandedCats[cat];
-              const visible = isOpen ? items : items.slice(0, 5);
               return (
-                <div key={cat}>
-                  <button
-                    onClick={() => toggleCat(cat)}
-                    className="w-full flex items-center justify-between text-xs text-text-muted hover:text-text py-1"
-                  >
-                    <span className="font-medium uppercase tracking-wide">
-                      {CATEGORY_LABELS[cat]} <span className="opacity-60">({items.length})</span>
-                    </span>
-                    {items.length > 5 && (
-                      isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />
-                    )}
-                  </button>
-                  <div className="mt-1">
-                    {visible.map((pr) => (
-                      <div
-                        key={pr.name}
-                        className="flex items-center justify-between py-1.5 border-b border-border last:border-0"
-                      >
-                        <span className="text-sm truncate mr-2">{pr.name}</span>
-                        <div className="text-right shrink-0">
-                          <span className="font-medium text-accent">{pr.weight} kg</span>
-                          <span className="text-xs text-text-muted ml-2">
-                            {format(parseISO(pr.date), 'MMM d')}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                    {!isOpen && items.length > 5 && (
-                      <button
-                        onClick={() => toggleCat(cat)}
-                        className="text-xs text-accent mt-1 hover:underline"
-                      >
-                        Show {items.length - 5} more
-                      </button>
-                    )}
-                  </div>
-                </div>
+                <ExpandableRow
+                  key={metric}
+                  dotColor={METRIC_COLORS[metric]}
+                  label={METRIC_LABELS[metric]}
+                  value={val != null ? `${val.toFixed(1)}${METRIC_UNITS[metric]}` : '--'}
+                  change={displayChange}
+                  changePositive={change != null ? positiveChange : undefined}
+                >
+                  <SparklineSVG
+                    data={series.slice(-56)}
+                    color={METRIC_COLORS[metric]}
+                    goalValue={bfGoal}
+                    unit={METRIC_UNITS[metric]}
+                    note={subMetricNotes[metric]}
+                    height={56}
+                  />
+                </ExpandableRow>
               );
             })}
           </div>
-        ) : (
-          <p className="text-sm text-text-muted">Complete workouts to track PRs</p>
-        )}
-      </div>
+        </Card>
+      </section>
+
+      {/* ── Section 2: Drivers ── */}
+      <section>
+        <SectionHeading label="Drivers" infoColor="#4ade80">
+          <strong>How consistent am I?</strong> Each score is a rolling 7-day average, so it climbs
+          as you string good days together and dips when you slip. The ▲/▼ under each ring is the
+          change vs 30 days ago; expand a row for the 30-day trend and last month's change.
+          <br /><br />
+          <strong>Workouts:</strong> of your <em>scheduled</em> sessions, how many you completed (logged or ticked off). Rest days don't count against you, so following your plan = 100%.<br />
+          <strong>Protein:</strong> days you hit your protein minimum ({proteinMin}g) — a day with no food logged counts as a miss.<br />
+          <strong>{goalConfig.calorieRingLabel}:</strong> days your calories were {
+            intent === 'cut' ? `under ${calorieTarget.max} kcal`
+            : intent === 'bulk' ? `over ${calorieTarget.min} kcal`
+            : `within ${calorieTarget.min}–${calorieTarget.max} kcal`
+          } — unlogged days count as a miss.<br />
+          <strong>Volume:</strong> total training load (sets × reps × kg) over the last 30 days vs the previous 30. The ring midpoint = no change.
+        </SectionHeading>
+
+        {/* Score rings */}
+        <Card className="mb-3">
+          <div className="grid grid-cols-4 gap-2">
+            <ScoreRing
+              value={workoutScore.score}
+              max={100}
+              displayValue={`${Math.round(workoutScore.score)}%`}
+              label="Workouts"
+              color="#4ade80"
+              sub={trendSub(workoutScore.trend)}
+              subColor={trendColor(workoutScore.trend)}
+            />
+            <ScoreRing
+              value={proteinScore.score}
+              max={100}
+              displayValue={`${Math.round(proteinScore.score)}%`}
+              label="Protein"
+              color="#60a5fa"
+              sub={trendSub(proteinScore.trend)}
+              subColor={trendColor(proteinScore.trend)}
+            />
+            <ScoreRing
+              value={calorieScore.score}
+              max={100}
+              displayValue={`${Math.round(calorieScore.score)}%`}
+              label={goalConfig.calorieRingLabel}
+              color={goalConfig.calorieRingColor}
+              sub={trendSub(calorieScore.trend)}
+              subColor={trendColor(calorieScore.trend)}
+            />
+            <ScoreRing
+              value={volumeRingValue}
+              max={100}
+              displayValue={volumeDisplayVal}
+              label="Volume"
+              color="#c084fc"
+              sub={volumeChangePct != null ? 'vs prev 30d' : null}
+            />
+          </div>
+        </Card>
+
+        {/* Driver expandables */}
+        <Card>
+          <div className="text-sm font-medium text-text mb-2">Consistency trend — last 30 days</div>
+          <div className="divide-y divide-border">
+
+            {/* Workouts */}
+            <ExpandableRow
+              dotColor="#4ade80"
+              label="Workouts"
+              value={`${Math.round(workoutScore.score)}%`}
+              change={trendSub(workoutScore.trend)}
+              changePositive={workoutScore.trend != null ? workoutScore.trend >= 0 : undefined}
+            >
+              <SparklineSVG data={workoutScore.series} color="#4ade80" unit="%" height={56} />
+              <p className="text-[10px] text-text-muted mt-1">{monthlyCaption(workoutMonthly)}</p>
+            </ExpandableRow>
+
+            {/* Protein */}
+            <ExpandableRow
+              dotColor="#60a5fa"
+              label="Protein"
+              value={`${Math.round(proteinScore.score)}%`}
+              change={trendSub(proteinScore.trend)}
+              changePositive={proteinScore.trend != null ? proteinScore.trend >= 0 : undefined}
+            >
+              <SparklineSVG data={proteinScore.series} color="#60a5fa" unit="%" height={56} />
+              <p className="text-[10px] text-text-muted mt-1">{monthlyCaption(proteinMonthly)}</p>
+            </ExpandableRow>
+
+            {/* Calories */}
+            <ExpandableRow
+              dotColor={goalConfig.calorieRingColor}
+              label={goalConfig.calorieRingLabel}
+              value={`${Math.round(calorieScore.score)}%`}
+              change={trendSub(calorieScore.trend)}
+              changePositive={calorieScore.trend != null ? calorieScore.trend >= 0 : undefined}
+            >
+              <SparklineSVG data={calorieScore.series} color={goalConfig.calorieRingColor} unit="%" height={56} />
+              <p className="text-[10px] text-text-muted mt-1">{monthlyCaption(calorieMonthly)}</p>
+            </ExpandableRow>
+
+            {/* Volume */}
+            <ExpandableRow
+              dotColor="#c084fc"
+              label="Volume load"
+              value={vol30.toLocaleString() + ' kg'}
+              change={volumeChangePct != null ? `${volumeChangePct > 0 ? '+' : ''}${volumeChangePct}%` : undefined}
+              changePositive={volumeChangePct != null ? volumeChangePct > 0 : undefined}
+            >
+              <div style={{ height: 60 }}>
+                <Line
+                  data={buildVolumeLineData()}
+                  options={{
+                    ...chartBarOptions,
+                    scales: {
+                      x: { display: false },
+                      y: { display: false },
+                    },
+                  }}
+                />
+              </div>
+              <p className="text-[10px] text-text-muted mt-1">Weekly volume load (sets × reps × kg) over 8 weeks. Last 30 days: {vol30.toLocaleString()} kg vs {volPrev30.toLocaleString()} kg previously.</p>
+            </ExpandableRow>
+
+          </div>
+        </Card>
+      </section>
+
+      {/* ── Section 3: Records ── */}
+      <section>
+        <SectionHeading label="Records" infoColor="#fbbf24">
+          <strong>How strong am I?</strong> Personal records from your completed workout logs.
+          <br /><br />
+          <strong>PR weight:</strong> the heaviest set you've logged for each exercise.<br />
+          <strong>Est. 1RM:</strong> estimated one-rep maximum using the Epley formula
+          (weight × (1 + reps ÷ 30)). Not shown when the PR was a single rep — that weight
+          IS your 1RM.
+        </SectionHeading>
+
+        <Card>
+          {CATEGORY_ORDER.filter((cat) => prsByCategory[cat]?.length > 0).map((cat) => (
+            <div key={cat} className="mb-4 last:mb-0">
+              <div className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 capitalize">
+                {cat}
+              </div>
+              <div className="space-y-2">
+                {prsByCategory[cat].map((pr) => (
+                  <div key={pr.name} className="flex items-center justify-between">
+                    <span className="text-sm text-text">{pr.name}</span>
+                    <div className="text-right">
+                      <span className="text-sm font-semibold text-green-400">{pr.weight} kg</span>
+                      {pr.estimatedOneRM && (
+                        <span className="text-xs text-text-muted ml-2">
+                          est. 1RM {pr.estimatedOneRM.toFixed(0)} kg
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {Object.keys(prsByCategory).length === 0 && (
+            <p className="text-sm text-text-muted text-center py-4">
+              No records yet — complete a workout to see your PRs here.
+            </p>
+          )}
+        </Card>
+      </section>
+
     </div>
   );
 }
