@@ -76,6 +76,7 @@ Backup/restore (`hooks/useSettings.js`) adds `pump-food-library` to the export o
 Follows the established `progressCalcs.js` pattern: all maths in a pure, unit-tested module.
 
 - `scaleFood(food, quantity)` → `{ calories, protein }` = per-base × (quantity ÷ `base.amount`), rounded (reuse the `round1` convention).
+- `parseFoodInput(text)` → `{ name, quantity?, unit? }`. Extracts an explicit amount+unit from either end of the phrase (`320g roast beef`, `roast beef 320g`, `2 eggs`, `1 scoop whey`) and returns the stripped food name; `{ name }` alone when no quantity is present.
 - `fuzzyMatch(query, library, { limit })` → ranked matches across foods **and** meals. Normalised (lowercase, trim, strip punctuation) token/substring scoring, no external dependency. Tie-break by `useCount` desc then `lastUsed` desc.
 - `labelToBaseFood(labelJson)` → normalises an OFF product or a transcribed label into a `food` entity, **preferring per-100g** as the base, falling back to per-serving.
 - `addOrUpdateFood(library, food)` → dedupe by normalised `name` + `unit`; bumps `useCount`/`lastUsed` on re-add.
@@ -117,9 +118,13 @@ This is the single orchestrator; the pure `foodLibrary.js` stays network-free, a
 
 `MealLogger.jsx` is already ~290 lines. Extract focused components rather than bloat it:
 
-- **`components/food/FoodSuggestions.jsx`** — as the user types in the "Describe a food item" box, a dropdown of fuzzy matches from **library foods + saved meals** (Tier 3) and, on demand, CoFID/OFF results (Tiers 1–2). Each row shows name, base unit, and a small provenance tag.
-  - Tap a **food** → opens `QuantitySheet`.
+- **Inline quantity parsing** — the typed phrase is parsed for an explicit amount+unit before matching, so `320g roast beef`, `roast beef 320g`, `2 eggs`, `1 scoop whey` resolve in **one shot**: parse → strip to the food name → resolve → auto-scale → populate kcal/protein. This is the default happy path — deterministic, no AI, no second tap.
+  - `parseFoodInput(text)` (pure, in `foodLibrary.js`) → `{ name, quantity, unit }` or `{ name }` when no quantity is present. Handles amount at either end, common units (`g`, `ml`, and per-item words → count).
+  - **Scaling applies only when the parsed unit matches the resolved food's base unit** (explicit weights, or per-item foods). On a mismatch (e.g. `2 slices` vs a per-100g food), fall through to `QuantitySheet` rather than guess a slice weight.
+- **`components/food/FoodSuggestions.jsx`** — as the user types, a dropdown of fuzzy matches from **library foods + saved meals** (Tier 3) and, on demand, CoFID/OFF results (Tiers 1–2). Each row shows name, base unit, resolved macros, and a small provenance tag. When several DB entries match one name (e.g. `roast beef` → multiple CoFID cuts), the **best match is applied but any row can be tapped to swap** — never a silent arbitrary pick.
+  - No quantity parsed, tap a **food** → opens `QuantitySheet` with the base amount pre-filled.
   - Tap a **saved meal** → inserts all its component items at once.
+  - Name resolves but not found in any tier → the whole typed phrase goes to the Tier-4 AI estimate (today's `✓` behaviour).
 - **`components/food/QuantitySheet.jsx`** — base-unit quantity entry (pre-filled with `base.amount`) with a **live scaled preview** of kcal/protein. Confirm → adds the scaled item. No AI call, no guessing.
 - **Barcode button** — new control alongside camera/gallery. Uses the native `BarcodeDetector` API (Chrome/Android — the real target), with `@zxing/library` as a fallback for unsupported browsers. On scan → `lookupBarcode` → `QuantitySheet` (base 100g) → add item, with one-tap **Save to my foods**.
 - **Photo flow (identify → cross-reference DB → fallback)** — `analyzePhotoWithPortion` is replaced by an **identification-first** pipeline. The photo is an input for *identifying the product*, not the source of the numbers; the database is the source of truth. One combined prompt returns:
@@ -153,7 +158,7 @@ Add an 8th client-side tool to Coach's existing tool-use loop (`services/ai/`), 
 
 ## 7. Testing
 
-- `utils/foodLibrary.test.js` — `scaleFood` maths (100g and per-item bases, fractional quantities), `fuzzyMatch` ranking + tie-breaks, `labelToBaseFood` normalisation (per-100g preferred, per-serving fallback), `addOrUpdateFood` dedupe.
+- `utils/foodLibrary.test.js` — `scaleFood` maths (100g and per-item bases, fractional quantities), `parseFoodInput` (amount at either end, per-item counts, no-quantity, junk input), `fuzzyMatch` ranking + tie-breaks, `labelToBaseFood` normalisation (per-100g preferred, per-serving fallback), `addOrUpdateFood` dedupe.
 - `utils/cofid.test.js` — search against a small fixture; kcal/protein mapping.
 - `utils/openFoodFacts.test.js` — nutriment field mapping and null-handling with mocked fetch (no live network in tests).
 - All added to the existing Vitest suite (`npm test`).
