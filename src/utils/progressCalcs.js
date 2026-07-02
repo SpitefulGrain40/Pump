@@ -199,68 +199,6 @@ export function getExercisePRs(workoutLogs, exerciseLibrary) {
   return result;
 }
 
-// ── Adherence calculations ─────────────────────────────────────────────────
-
-function lastNDates(daysBack) {
-  const dates = [];
-  for (let i = 0; i < daysBack; i++) {
-    const d = new Date(Date.now() - i * 86400000);
-    dates.push(d.toISOString().split('T')[0]);
-  }
-  return dates;
-}
-
-export function calcWorkoutAdherence(workoutLogs, daysBack) {
-  const dates = lastNDates(daysBack);
-  const completedDates = new Set(
-    workoutLogs
-      .filter((l) => l.completedAt)
-      .map((l) => l.date),
-  );
-  const results = dates.map((date) => ({ date, completed: completedDates.has(date) }));
-  return { daysHit: results.filter((r) => r.completed).length, results };
-}
-
-function getDailyNutritionTotals(nutritionLogs, daysBack) {
-  const dates = lastNDates(daysBack);
-  const byDate = {};
-  nutritionLogs.forEach((meal) => {
-    const date = meal.timestamp.split('T')[0];
-    if (!byDate[date]) byDate[date] = { calories: 0, protein: 0 };
-    byDate[date].calories += Number(meal.totals?.calories) || 0;
-    byDate[date].protein += Number(meal.totals?.protein) || 0;
-  });
-  return dates.map((date) => ({
-    date,
-    calories: byDate[date]?.calories || 0,
-    protein: byDate[date]?.protein || 0,
-    logged: !!byDate[date],
-  }));
-}
-
-export function calcProteinAdherence(nutritionLogs, proteinMin, daysBack) {
-  const daily = getDailyNutritionTotals(nutritionLogs, daysBack);
-  const results = daily
-    .filter((d) => d.logged)
-    .map((d) => ({ date: d.date, hit: d.protein >= proteinMin, value: d.protein }));
-  return { daysHit: results.filter((r) => r.hit).length, total: daily.length, results };
-}
-
-export function calcCalorieAdherence(nutritionLogs, calorieTarget, daysBack, intent) {
-  const daily = getDailyNutritionTotals(nutritionLogs, daysBack);
-  const { min, max } = calorieTarget || {};
-  const results = daily
-    .filter((d) => d.logged)
-    .map((d) => {
-      let hit = false;
-      if (intent === 'cut') hit = max != null && d.calories <= max;
-      else if (intent === 'bulk') hit = min != null && d.calories >= min;
-      else hit = min != null && max != null && d.calories >= min && d.calories <= max;
-      return { date: d.date, hit, value: d.calories };
-    });
-  return { daysHit: results.filter((r) => r.hit).length, total: daily.length, results };
-}
-
 // ── Consistency (rolling 7-day, tracked over 30 days) ───────────────────────
 
 function lastNDatesAsc(days) {

@@ -4,9 +4,6 @@ import {
   forecastToTarget,
   estimateOneRepMax,
   calcWeeklyVolumes,
-  calcWorkoutAdherence,
-  calcProteinAdherence,
-  calcCalorieAdherence,
   getGoalConfig,
   buildWeightSeries,
   buildWaistSeries,
@@ -191,72 +188,6 @@ describe('calcWeeklyVolumes', () => {
     }];
     const vols = calcWeeklyVolumes(logs, 1);
     expect(vols[0].volume).toBe(0);
-  });
-});
-
-describe('calcWorkoutAdherence', () => {
-  it('counts days with at least one completed workout in window', () => {
-    const today = new Date();
-    const yesterday = new Date(today.getTime() - 86400000);
-    const logs = [
-      {date: today.toISOString().split('T')[0], completedAt: today.toISOString()},
-      {date: yesterday.toISOString().split('T')[0], completedAt: yesterday.toISOString()},
-      {date: today.toISOString().split('T')[0], completedAt: null},  // not complete
-    ];
-    const result = calcWorkoutAdherence(logs, 7);
-    expect(result.daysHit).toBe(2);
-    expect(result.results).toHaveLength(7);
-  });
-});
-
-describe('calcProteinAdherence', () => {
-  it('counts days where total protein >= proteinMin', () => {
-    const today = new Date();
-    const d = (offsetDays) => {
-      const t = new Date(today.getTime() - offsetDays * 86400000);
-      return t.toISOString();
-    };
-    const logs = [
-      {timestamp: d(0), totals: {calories: 2000, protein: 150}},
-      {timestamp: d(1), totals: {calories: 1800, protein: 80}},  // miss (min=120)
-      {timestamp: d(2), totals: {calories: 2100, protein: 130}},
-    ];
-    const result = calcProteinAdherence(logs, 120, 7);
-    expect(result.daysHit).toBe(2);
-  });
-});
-
-describe('calcCalorieAdherence', () => {
-  it('counts days under max for cut intent', () => {
-    const today = new Date();
-    const d = (offsetDays) => new Date(today.getTime() - offsetDays * 86400000).toISOString();
-    const logs = [
-      {timestamp: d(0), totals: {calories: 1800, protein: 120}},  // hit (under 2200)
-      {timestamp: d(1), totals: {calories: 2400, protein: 100}},  // miss (over 2200)
-    ];
-    const result = calcCalorieAdherence(logs, {min: 1800, max: 2200}, 7, 'cut');
-    expect(result.daysHit).toBe(1);
-  });
-  it('counts days hitting minimum for bulk intent', () => {
-    const today = new Date();
-    const d = (offsetDays) => new Date(today.getTime() - offsetDays * 86400000).toISOString();
-    const logs = [
-      {timestamp: d(0), totals: {calories: 2600, protein: 160}},  // hit (over 2400 min)
-      {timestamp: d(1), totals: {calories: 2100, protein: 130}},  // miss (under 2400)
-    ];
-    const result = calcCalorieAdherence(logs, {min: 2400, max: 2800}, 7, 'bulk');
-    expect(result.daysHit).toBe(1);
-  });
-  it('counts days within range for recomp/maintain', () => {
-    const today = new Date();
-    const d = (offsetDays) => new Date(today.getTime() - offsetDays * 86400000).toISOString();
-    const logs = [
-      {timestamp: d(0), totals: {calories: 2100, protein: 140}},  // in range 2000-2200
-      {timestamp: d(1), totals: {calories: 1700, protein: 110}},  // below range
-      {timestamp: d(2), totals: {calories: 2400, protein: 150}},  // above range
-    ];
-    const result = calcCalorieAdherence(logs, {min: 2000, max: 2200}, 7, 'recomp');
-    expect(result.daysHit).toBe(1);
   });
 });
 
