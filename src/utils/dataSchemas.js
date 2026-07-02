@@ -79,9 +79,56 @@ export const createExerciseLog = (name, planned, actual = null) => ({
 export const createMealLog = (items, totals, photoAnalyzed = false, date = null) => ({
   id: `meal-${Date.now()}`,
   timestamp: date ? new Date(date).toISOString() : new Date().toISOString(),
-  items,
-  totals,
+  items: items.map((it) => ({
+    ...it,
+    carbs: Number(it.carbs) || 0,
+    fat: Number(it.fat) || 0,
+  })),
+  totals: {
+    calories: Number(totals.calories) || 0,
+    protein: Number(totals.protein) || 0,
+    carbs: Number(totals.carbs) || 0,
+    fat: Number(totals.fat) || 0,
+  },
   photoAnalyzed,
+});
+
+// ── Food library entities (pump-food-library) ────────────────────────────────
+
+export const createLibraryFood = ({
+  name, base, calories, protein, carbs = 0, fat = 0, source = 'manual', barcode = null,
+}) => ({
+  id: `food-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  kind: 'food',
+  name,
+  base,
+  calories: Number(calories) || 0,
+  protein: Number(protein) || 0,
+  carbs: Number(carbs) || 0,
+  fat: Number(fat) || 0,
+  source,
+  barcode,
+  createdAt: new Date().toISOString(),
+  lastUsed: new Date().toISOString(),
+  useCount: 0,
+});
+
+export const createSavedMeal = ({ name, components }) => ({
+  id: `savedmeal-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  kind: 'meal',
+  name,
+  components: components.map((c) => ({
+    name: c.name,
+    quantity: Number(c.quantity) || 0,
+    unit: c.unit || 'serving',
+    calories: Number(c.calories) || 0,
+    protein: Number(c.protein) || 0,
+    carbs: Number(c.carbs) || 0,
+    fat: Number(c.fat) || 0,
+  })),
+  createdAt: new Date().toISOString(),
+  lastUsed: new Date().toISOString(),
+  useCount: 0,
 });
 
 export const createWeightEntry = (weight, date = null) => ({
