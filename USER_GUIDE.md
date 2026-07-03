@@ -80,10 +80,17 @@ Your personal AI fitness coach that:
 ## Tips
 
 ### Logging Food
-- **Photo method**: Take a pic, AI estimates. Good for quick logging.
-- **Text method**: "I had a chicken breast with rice and broccoli"
-- **Be specific**: "Large chicken breast ~250g" beats "some chicken"
-- **Round numbers are fine**: This is about trends, not precision
+- **Type with a quantity**: "320g roast beef" or "2 eggs" — Pump parses the amount, looks the food up, and fills in the macros for you. No guessing.
+- **Scan a barcode**: Tap the barcode icon and snap the barcode on any packaged product. Verified nutrition comes straight from Open Food Facts.
+- **Photo method**: Take a pic of a plate or a nutrition label. Pump identifies the food and cross-references the database for accurate numbers; it only estimates when the food isn't found.
+- **Save your regulars**: Tap the bookmark on any item to save it to *my foods*, or "Save meal" to store a whole meal. Next time, just start typing and pick it from the suggestions.
+- **Four macros**: calories, protein, carbs and fat are all captured and shown.
+- **Round numbers are fine**: This is about trends, not precision.
+
+### Saving Foods & Scanning Barcodes
+- Saved foods store macros **per base unit** (per 100g, per serving, or per item), so any portion scales exactly.
+- Your saved foods and meals sync via **backup/restore** like everything else.
+- **Data sources & attribution**: generic UK foods use **CoFID** (McCance & Widdowson's Composition of Foods Integrated Dataset, © Crown copyright, Public Health England, Open Government Licence v3.0). Packaged products use **Open Food Facts** (Open Database Licence, ODbL).
 
 ### Using Coach Effectively
 - **Be conversational**: "My neck is sore today" works

@@ -24,10 +24,12 @@ export function useNutritionLogs() {
       (acc, meal) => ({
         calories: acc.calories + (Number(meal.totals?.calories) || 0),
         protein: acc.protein + (Number(meal.totals?.protein) || 0),
+        carbs: acc.carbs + (Number(meal.totals?.carbs) || 0),
+        fat: acc.fat + (Number(meal.totals?.fat) || 0),
       }),
-      { calories: 0, protein: 0 }
+      { calories: 0, protein: 0, carbs: 0, fat: 0 }
     );
-    return { calories: round1(sum.calories), protein: round1(sum.protein) };
+    return { calories: round1(sum.calories), protein: round1(sum.protein), carbs: round1(sum.carbs), fat: round1(sum.fat) };
   };
 
   const getMealsForDate = (date) => {
@@ -41,10 +43,12 @@ export function useNutritionLogs() {
       (acc, meal) => ({
         calories: acc.calories + (Number(meal.totals?.calories) || 0),
         protein: acc.protein + (Number(meal.totals?.protein) || 0),
+        carbs: acc.carbs + (Number(meal.totals?.carbs) || 0),
+        fat: acc.fat + (Number(meal.totals?.fat) || 0),
       }),
-      { calories: 0, protein: 0 }
+      { calories: 0, protein: 0, carbs: 0, fat: 0 }
     );
-    return { calories: round1(sum.calories), protein: round1(sum.protein) };
+    return { calories: round1(sum.calories), protein: round1(sum.protein), carbs: round1(sum.carbs), fat: round1(sum.fat) };
   };
 
   // 7-day average. Calories and protein are averaged INDEPENDENTLY — a day

@@ -505,7 +505,7 @@ export default function Coach() {
 
       // Build a tool executor that reads from localStorage hooks on demand.
       // Only wired for Anthropic — CLI and OpenRouter providers ignore it.
-      const toolExecutor = (name, input) => {
+      const toolExecutor = async (name, input) => {
         const today = new Date();
         const cap = (n, max) => Math.min(n || 0, max);
         const cutoff = (days, max) => subDays(today, cap(days, max) || max);
@@ -560,6 +560,14 @@ export default function Coach() {
             return templates || {};
           case 'get_performance_summary':
             return buildPerformanceContext(completedDays, weightHistory, meals, schedule, profile);
+          case 'lookup_nutrition': {
+            const { resolveNutrition } = await import('../utils/nutritionResolver');
+            const library = JSON.parse(localStorage.getItem('pump-food-library') || '[]').filter((e) => e.kind === 'food');
+            const r = await resolveNutrition({ query: input.query, barcode: input.barcode, library });
+            return r
+              ? { found: true, verified: r.verified, provenance: r.provenance, food: r.food }
+              : { found: false };
+          }
           default:
             return { error: `Unknown tool: ${name}` };
         }

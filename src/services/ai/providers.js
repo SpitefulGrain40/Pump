@@ -72,6 +72,17 @@ export const COACH_TOOLS = [
     name: 'get_performance_summary',
     description: "Get a 2-week performance summary: workout completion rate, current streak, weight change, and average calories/protein. Call when the user asks about overall progress, consistency, or whether they're on track.",
     input_schema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'lookup_nutrition',
+    description: "Look up verified calories/protein/carbs/fat (per 100g or per unit) for a food, by name or barcode. Sources the user's saved food library, the UK CoFID database, and Open Food Facts. Call before logging a meal to ground the numbers in real data instead of guessing.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Food name to look up, e.g. "roast beef"' },
+        barcode: { type: 'string', description: 'Product barcode digits, if known' }
+      }
+    }
   }
 ];
 
@@ -215,7 +226,7 @@ export async function sendToAnthropic(apiKey, model, messages, systemPrompt, opt
       if (block.type === 'tool_use') {
         let result;
         try {
-          result = opts.toolExecutor(block.name, block.input);
+          result = await opts.toolExecutor(block.name, block.input);
         } catch (e) {
           result = { error: e.message };
         }
