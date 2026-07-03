@@ -47,4 +47,11 @@ if (fs.existsSync(srcHtml)) {
   console.log('✓ index.src.html → index.html');
 }
 
+// Ensure .nojekyll so GitHub Pages serves docs/ as static files. Without it,
+// Pages runs Jekyll, whose Liquid parser chokes on `{{`/`{%` sequences that
+// minified JS bundles routinely contain — the build then fails ("Page build
+// failed") and the site silently keeps serving the previous deploy.
+fs.writeFileSync(path.join(docsDir, '.nojekyll'), '');
+console.log('✓ ensured docs/.nojekyll');
+
 console.log(`✓ Deployed to docs/ (build ${buildDate})`);
