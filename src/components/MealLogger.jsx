@@ -3,7 +3,7 @@ import { X, Camera, Image, Loader2, Check, Trash2, Bookmark, ScanBarcode } from 
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useSettings } from '../hooks/useSettings';
 import { useFoodLibrary } from '../hooks/useFoodLibrary';
-import { parseFoodInput, normalizeUnit, scaleFood } from '../utils/foodLibrary';
+import { parseFoodInput, normalizeUnit, scaleFood, round1 } from '../utils/foodLibrary';
 import { resolveNutrition, resolveFromPhoto } from '../utils/nutritionResolver';
 import { createLibraryFood } from '../utils/dataSchemas';
 import { detectBarcodeFromImage } from '../utils/barcodeScan';
@@ -54,12 +54,15 @@ export default function MealLogger({ onClose }) {
   };
 
   // Pick a resolved food: honour an inline-parsed quantity when its unit matches
-  // the food's base unit, else open the quantity sheet.
+  // the food's base unit, else open the quantity sheet (pre-filled from a
+  // word-quantity multiplier — "half a portion of..." — when one was given).
   const pickFood = (food) => {
     const parsed = parseFoodInput(draft);
     if (parsed.quantity && (!parsed.unit || normalizeUnit(parsed.unit) === normalizeUnit(food.base.unit))) {
       touch(food.id);
       addScaledItem({ name: food.name, quantity: parsed.quantity, unit: food.base.unit, ...scaleFood(food, parsed.quantity), source: food.source });
+    } else if (parsed.quantityMultiplier != null) {
+      setQuantityFood({ food, initialQuantity: round1(parsed.quantityMultiplier * food.base.amount) });
     } else {
       setQuantityFood({ food, initialQuantity: parsed.quantity ?? food.base.amount });
     }
@@ -227,6 +230,7 @@ export default function MealLogger({ onClose }) {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={handleDraftKey}
+              enterKeyHint="send"
               disabled={estimating}
               className="flex-1 bg-bg border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-accent disabled:opacity-50"
             />
@@ -287,6 +291,7 @@ export default function MealLogger({ onClose }) {
               initialQuantity={quantityFood.initialQuantity}
               onConfirm={(item) => { if (quantityFood.food.id) touch(quantityFood.food.id); addScaledItem(item); }}
               onCancel={() => setQuantityFood(null)}
+              onEstimateQuantity={isConfigured() ? (description) => estimatePortionQuantity(quantityFood.food, description) : undefined}
             />
           ) : (
             <FoodSuggestions results={suggestions} onPickFood={pickFood} onPickMeal={pickMeal} />
@@ -311,6 +316,7 @@ export default function MealLogger({ onClose }) {
                       value={item.note}
                       onChange={(e) => updatePendingNote(i, e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter' && item.note.trim()) confirmPortion(i); }}
+                      enterKeyHint="send"
                       autoFocus={i === 0}
                       disabled={confirmingIndex === i}
                       className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-accent disabled:opacity-50"
@@ -428,6 +434,7 @@ export default function MealLogger({ onClose }) {
                 value={mealName}
                 onChange={(e) => setMealName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && doSaveMeal()}
+                enterKeyHint="done"
                 autoFocus
                 className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
               />
@@ -485,9 +492,9 @@ function getApiConfig() {
   return { provider, apiKey };
 }
 
-async function estimateItem(description) {
+// Shared text-only call across providers — returns the raw response text.
+async function callTextModel(prompt, { maxTokens = 150 } = {}) {
   const { provider, apiKey } = getApiConfig();
-  const prompt = `Estimate calories and macros for: "${description}". Return ONLY valid JSON — no other text: {"name": "clean item name", "calories": 123, "protein": 12, "carbs": 30, "fat": 5}`;
 
   if (provider === 'cli') {
     const res = await fetch(CLI_PROXY_URL, {
@@ -497,29 +504,49 @@ async function estimateItem(description) {
     });
     if (!res.ok) throw new Error('CLI proxy error — is it running? (node scripts/pump-cli-proxy.cjs)');
     const data = await res.json();
-    return parseSingleItem(data.content || '');
+    return data.content || '';
   } else if (provider === 'openrouter') {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'pump-fitness-app' },
-      body: JSON.stringify({ model: HAIKU_OPENROUTER, messages: [{ role: 'user', content: prompt }], max_tokens: 120 }),
+      body: JSON.stringify({ model: HAIKU_OPENROUTER, messages: [{ role: 'user', content: prompt }], max_tokens: maxTokens }),
     });
     if (!res.ok) throw new Error('API request failed');
     const data = await res.json();
-    return parseSingleItem(data.choices?.[0]?.message?.content || '');
+    return data.choices?.[0]?.message?.content || '';
   } else {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: HAIKU_ANTHROPIC, max_tokens: 200, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: HAIKU_ANTHROPIC, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
     });
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({}));
       throw new Error(errBody?.error?.message || `API error ${res.status}`);
     }
     const data = await res.json();
-    return parseSingleItem(data.content?.[0]?.text || '');
+    return data.content?.[0]?.text || '';
   }
+}
+
+async function estimateItem(description) {
+  const prompt = `Estimate calories and macros for: "${description}". Return ONLY valid JSON — no other text: {"name": "clean item name", "calories": 123, "protein": 12, "carbs": 30, "fat": 5}`;
+  const raw = await callTextModel(prompt, { maxTokens: 120 });
+  return parseSingleItem(raw);
+}
+
+// Estimates ONLY the portion quantity (in the food's base unit) from a free-text
+// description — macros stay whatever the DB already resolved, never re-guessed.
+async function estimatePortionQuantity(food, description) {
+  const unitLabel = food.base.unit === 'g' || food.base.unit === 'ml' ? food.base.unit : food.base.unit;
+  const prompt = `For the food "${food.name}", measured in ${unitLabel}, the user describes their portion as: "${description}". Estimate the quantity in ${unitLabel} that best matches (a whole food is roughly ${food.base.amount} ${unitLabel}, use that as a reference scale). Return ONLY valid JSON — no other text: {"quantity": 123}`;
+  const raw = await callTextModel(prompt, { maxTokens: 40 });
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('Could not read that portion');
+  const parsed = JSON.parse(match[0]);
+  const quantity = Number(parsed.quantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Could not estimate that portion');
+  return quantity;
 }
 
 // Identify (don't compute) the food in a photo, so the DB can supply the numbers.
