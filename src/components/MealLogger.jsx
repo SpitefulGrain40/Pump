@@ -1,12 +1,12 @@
 import { useState, useRef } from 'react';
-import { X, Camera, Image, Loader2, Check, Trash2, Bookmark, ScanBarcode } from 'lucide-react';
+import { X, Camera, Image, Loader2, Check, Trash2, Bookmark } from 'lucide-react';
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useSettings } from '../hooks/useSettings';
 import { useFoodLibrary } from '../hooks/useFoodLibrary';
-import { parseFoodInput, normalizeUnit, scaleFood, round1 } from '../utils/foodLibrary';
+import { parseFoodInput, parsePortionNote, normalizeUnit, scaleFood, round1 } from '../utils/foodLibrary';
 import { resolveNutrition, resolveFromPhoto } from '../utils/nutritionResolver';
 import { createLibraryFood } from '../utils/dataSchemas';
-import { detectBarcodeFromImage } from '../utils/barcodeScan';
+import { detectBarcodeFromDataUrl } from '../utils/barcodeScan';
 import { lookupBarcode } from '../utils/openFoodFacts';
 import FoodSuggestions from './food/FoodSuggestions';
 import QuantitySheet from './food/QuantitySheet';
@@ -16,7 +16,6 @@ export default function MealLogger({ onClose }) {
   const { isConfigured } = useSettings();
   const { foods, saveFood, saveMeal, touch, search } = useFoodLibrary();
   const fileInputRef = useRef(null);
-  const barcodeInputRef = useRef(null);
   const draftInputRef = useRef(null);
 
   const [items, setItems] = useState([]);
@@ -140,14 +139,50 @@ export default function MealLogger({ onClose }) {
     setPendingItems((prev) => prev.map((item, i) => i === index ? { ...item, note: value } : item));
   };
 
-  // Photo → identify → cross-reference DB → quantity sheet (or estimate for meals).
+  // Apply a portion note to an identified food in one shot: resolve the note to a
+  // quantity deterministically, else AI-estimate it (per user preference), else
+  // open the confirm sheet at the base amount.
+  const applyPortion = async (food, note) => {
+    const parsed = parsePortionNote(note, food);
+    if (parsed?.quantity) {
+      addScaledItem({ name: food.name, quantity: parsed.quantity, unit: food.base.unit, ...scaleFood(food, parsed.quantity), source: food.source });
+      return;
+    }
+    if (parsed?.estimate && isConfigured()) {
+      try {
+        const q = await estimatePortionQuantity(food, note);
+        setQuantityFood({ food, initialQuantity: q }); // pre-fill guess for a final confirm/tweak
+        return;
+      } catch { /* fall through to a plain confirm sheet */ }
+    }
+    setQuantityFood({ food, initialQuantity: food.base.amount });
+  };
+
+  // Photo/scan → detect barcode → OFF, else AI-identify → cross-reference DB →
+  // one-shot portion from the note.
   const confirmPortion = async (index) => {
     const pending = pendingItems[index];
-    if (!pending.note.trim() || confirmingIndex === index) return;
+    if (confirmingIndex === index) return;
     setConfirmingIndex(index);
     setError(null);
+    const note = pending.note.trim();
     try {
-      const ident = await identifyPhoto(pending.base64, pending.note.trim());
+      // 1. Barcode wins when present (most accurate, no AI needed).
+      const code = await detectBarcodeFromDataUrl(pending.base64);
+      if (code) {
+        const food = await lookupBarcode(code);
+        if (food) {
+          setPendingItems((prev) => prev.filter((_, i) => i !== index));
+          await applyPortion(food, note);
+          return;
+        }
+      }
+      // 2. Otherwise identify with the AI (label/packaged/meal).
+      if (!isConfigured()) {
+        setError('Point the camera at a barcode, or add an AI provider in Settings to read labels & meals');
+        return;
+      }
+      const ident = await identifyPhoto(pending.base64, note || 'a normal portion');
       if (ident.type === 'meal') {
         const m = ident.mealEstimate || {};
         setItems((prev) => [...prev, {
@@ -160,7 +195,7 @@ export default function MealLogger({ onClose }) {
       const resolved = await resolveFromPhoto(ident, { library: foods });
       if (!resolved) { setError('Could not read that — type the food instead'); return; }
       setPendingItems((prev) => prev.filter((_, i) => i !== index));
-      setQuantityFood({ food: resolved.food, initialQuantity: resolved.food.base.amount });
+      await applyPortion(resolved.food, note);
     } catch (err) {
       setError(err.message || 'Failed to analyze photo');
     } finally {
@@ -175,31 +210,12 @@ export default function MealLogger({ onClose }) {
   const handlePhotoCapture = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!isConfigured()) { setError('Configure AI provider in Settings first'); return; }
     setError(null);
     try {
       const base64 = await fileToBase64(file);
       setPendingItems((prev) => [...prev, { base64, note: '' }]);
     } catch {
       setError('Failed to read photo');
-    } finally {
-      e.target.value = '';
-    }
-  };
-
-  const handleBarcodePhoto = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setError(null);
-    try {
-      const img = await createImageBitmap(file);
-      const code = await detectBarcodeFromImage(img);
-      if (!code) { setError('No barcode detected — try again or type the food'); return; }
-      const food = await lookupBarcode(code);
-      if (!food) { setError('Product not in Open Food Facts — type it or snap the label'); return; }
-      setQuantityFood({ food, initialQuantity: food.base.amount });
-    } catch {
-      setError('Barcode scan failed');
     } finally {
       e.target.value = '';
     }
@@ -235,18 +251,10 @@ export default function MealLogger({ onClose }) {
               className="flex-1 bg-bg border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-accent disabled:opacity-50"
             />
             <button
-              onClick={() => barcodeInputRef.current?.click()}
-              disabled={estimating}
-              className="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-light text-text-muted hover:text-text disabled:opacity-40 shrink-0"
-              title="Scan barcode"
-            >
-              <ScanBarcode size={16} />
-            </button>
-            <button
               onClick={() => { fileInputRef.current.setAttribute('capture', 'environment'); fileInputRef.current?.click(); }}
               disabled={estimating}
               className="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-light text-text-muted hover:text-text disabled:opacity-40 shrink-0"
-              title="Take photo"
+              title="Photo — barcode, label, or plate"
             >
               <Camera size={16} />
             </button>
@@ -275,14 +283,6 @@ export default function MealLogger({ onClose }) {
             onChange={handlePhotoCapture}
             className="hidden"
           />
-          <input
-            ref={barcodeInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleBarcodePhoto}
-            className="hidden"
-          />
 
           {/* Quantity sheet (base-unit entry) OR live suggestions */}
           {quantityFood ? (
@@ -304,7 +304,7 @@ export default function MealLogger({ onClose }) {
                 <div key={i} className="bg-bg rounded-lg p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <Camera size={13} className="text-text-muted shrink-0" />
-                    <span className="text-xs text-text-muted flex-1">Photo — how much did you have?</span>
+                    <span className="text-xs text-text-muted flex-1">How much did you have? (optional)</span>
                     <button onClick={() => dismissPending(i)} className="text-text-muted hover:text-danger">
                       <X size={14} />
                     </button>
@@ -312,10 +312,10 @@ export default function MealLogger({ onClose }) {
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="e.g. half a pack, a big bowl, 2 scoops"
+                      placeholder="e.g. half a pack, a big bowl, 120g"
                       value={item.note}
                       onChange={(e) => updatePendingNote(i, e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && item.note.trim()) confirmPortion(i); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') confirmPortion(i); }}
                       enterKeyHint="send"
                       autoFocus={i === 0}
                       disabled={confirmingIndex === i}
@@ -323,7 +323,7 @@ export default function MealLogger({ onClose }) {
                     />
                     <button
                       onClick={() => confirmPortion(i)}
-                      disabled={!item.note.trim() || confirmingIndex === i}
+                      disabled={confirmingIndex === i}
                       className="w-8 h-8 flex items-center justify-center rounded-lg bg-accent text-bg disabled:opacity-40 shrink-0"
                     >
                       {confirmingIndex === i

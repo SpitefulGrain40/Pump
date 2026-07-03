@@ -96,7 +96,7 @@ export const createMealLog = (items, totals, photoAnalyzed = false, date = null)
 // ── Food library entities (pump-food-library) ────────────────────────────────
 
 export const createLibraryFood = ({
-  name, base, calories, protein, carbs = 0, fat = 0, source = 'manual', barcode = null,
+  name, base, calories, protein, carbs = 0, fat = 0, source = 'manual', barcode = null, packSize = null,
 }) => ({
   id: `food-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
   kind: 'food',
@@ -108,6 +108,7 @@ export const createLibraryFood = ({
   fat: Number(fat) || 0,
   source,
   barcode,
+  packSize,
   createdAt: new Date().toISOString(),
   lastUsed: new Date().toISOString(),
   useCount: 0,

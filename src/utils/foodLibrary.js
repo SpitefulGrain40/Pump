@@ -29,6 +29,10 @@ const QUANTITY_WORDS = { half: 0.5, quarter: 0.25, third: 1 / 3, double: 2, trip
 const FRACTION = /^(\d+)\s*\/\s*(\d+)$/;
 // Filler consumed between a quantity word and the food name: "half [a portion of] chicken".
 const FILLER_WORDS = new Set(['a', 'an', 'the', 'portion', 'serving', 'of']);
+// Container nouns that indicate a pack quantity ("half a pack", "a 240g tin ...").
+const PACK_NOUNS = ['pack', 'packet', 'tub', 'tin', 'can', 'bottle', 'bag', 'carton', 'box', 'jar'];
+const PACK_NOUNS_SET = new Set(PACK_NOUNS);
+const PACK_NOUNS_RE = new RegExp('\\b(' + PACK_NOUNS.join('|') + ')s?\\b');
 
 export function parseQuantityWord(word) {
   const w = String(word || '').trim().toLowerCase();
@@ -76,6 +80,20 @@ export function parseFoodInput(text) {
     if (qw != null) {
       let j = i + 1;
       while (j < words.length && FILLER_WORDS.has(words[j].toLowerCase())) j++;
+
+      // Embedded pack size: "half a 240g pack <name>" → an absolute quantity
+      // (multiplier × pack amount) rather than a base-relative multiplier.
+      const packMatch = words[j] && words[j].match(/^(\d+(?:\.\d+)?)([a-z]+)?$/i);
+      const packNoun = words[j + 1] && normalizeUnit(words[j + 1].toLowerCase());
+      if (packMatch && packNoun && PACK_NOUNS_SET.has(packNoun)) {
+        const n = Number(packMatch[1]);
+        const unit = packMatch[2] ? normalizeUnit(packMatch[2]) : undefined;
+        let k = j + 2;
+        while (k < words.length && FILLER_WORDS.has(words[k].toLowerCase())) k++;
+        const packName = words.slice(k).join(' ').trim();
+        if (packName && Number.isFinite(n)) return { name: packName, quantity: round1(qw * n), unit };
+      }
+
       const name = words.slice(j).join(' ').trim();
       if (name) return { name, quantityMultiplier: qw };
     }
@@ -105,6 +123,36 @@ export function parseFoodInput(text) {
   return { name: t };
 }
 
+// Resolve a free-text portion note into a quantity of an already-resolved food.
+// Returns { quantity } when deterministic, { estimate: true } when it needs an
+// AI guess, or null for an empty note. Used for one-shot photo/scan logging where
+// the note ("half a pack", "120g", "2 scoops") is the only thing the user types.
+export function parsePortionNote(note, food) {
+  const t = String(note || '').trim();
+  if (!t) return null;
+  const lower = t.toLowerCase();
+  const base = food?.base?.amount || 1;
+  const packAmt = food?.packSize?.amount;
+
+  const tokens = lower.split(/\s+/).filter(Boolean);
+  let wordMult = parseQuantityWord(tokens[0]);
+  if (wordMult == null && ['a', 'an'].includes(tokens[0]) && tokens[1]) wordMult = parseQuantityWord(tokens[1]);
+
+  if (wordMult != null) {
+    const usePack = PACK_NOUNS_RE.test(lower) && packAmt;
+    return { quantity: round1(wordMult * (usePack ? packAmt : base)) };
+  }
+
+  const numMatch = lower.match(/(\d+(?:\.\d+)?)\s*([a-z]+)?/);
+  if (numMatch) {
+    const n = Number(numMatch[1]);
+    const unit = numMatch[2] ? normalizeUnit(numMatch[2]) : null;
+    if (Number.isFinite(n) && n > 0 && (!unit || isKnownUnit(unit))) return { quantity: n };
+  }
+
+  return { estimate: true };
+}
+
 export function fuzzyMatch(query, entries, { limit = 8 } = {}) {
   const q = norm(query);
   const qTokens = q.split(' ').filter(Boolean);
@@ -126,11 +174,11 @@ export function fuzzyMatch(query, entries, { limit = 8 } = {}) {
   return scored.slice(0, limit).map((x) => x.e);
 }
 
-export function labelToBaseFood({ name, source = 'ai', barcode = null, per100g, perServing, servingSize }) {
+export function labelToBaseFood({ name, source = 'ai', barcode = null, per100g, perServing, servingSize, packSize = null }) {
   const macros = per100g || perServing || {};
   const base = per100g ? { amount: 100, unit: 'g' } : (servingSize || { amount: 1, unit: 'serving' });
   return createLibraryFood({
-    name, base, source, barcode,
+    name, base, source, barcode, packSize,
     calories: macros.calories, protein: macros.protein, carbs: macros.carbs, fat: macros.fat,
   });
 }

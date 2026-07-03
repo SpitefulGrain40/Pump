@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  normalizeUnit, scaleFood, parseFoodInput, parseQuantityWord, fuzzyMatch, labelToBaseFood, addOrUpdateFood, touchEntry,
+  normalizeUnit, scaleFood, parseFoodInput, parseQuantityWord, parsePortionNote, fuzzyMatch, labelToBaseFood, addOrUpdateFood, touchEntry,
 } from './foodLibrary';
 
 const chicken = { id: 'food-1', kind: 'food', name: 'Chicken breast', base: { amount: 100, unit: 'g' },
@@ -42,6 +42,38 @@ describe('parseFoodInput', () => {
   });
   it('parses a leading bare fraction', () => {
     expect(parseFoodInput('3/4 chicken breast')).toEqual({ name: 'chicken breast', quantityMultiplier: 0.75 });
+  });
+  it('parses an embedded pack size into an absolute quantity', () => {
+    expect(parseFoodInput('half a 240g pack 5% fat beef mince')).toEqual({ name: '5% fat beef mince', quantity: 120, unit: 'g' });
+  });
+  it('parses "quarter of a 400g tin X"', () => {
+    expect(parseFoodInput('quarter of a 400g tin beans')).toEqual({ name: 'beans', quantity: 100, unit: 'g' });
+  });
+});
+
+describe('parsePortionNote', () => {
+  const foodA = { base: { amount: 100, unit: 'g' }, packSize: { amount: 240, unit: 'g' } };
+  const foodB = { base: { amount: 1, unit: 'scoop' } };
+
+  it('resolves "half a pack" against the product pack size', () => {
+    expect(parsePortionNote('half a pack', foodA)).toEqual({ quantity: 120 });
+  });
+  it('resolves an explicit weight', () => {
+    expect(parsePortionNote('120g', foodA)).toEqual({ quantity: 120 });
+    expect(parsePortionNote('120', foodA)).toEqual({ quantity: 120 });
+  });
+  it('resolves a bare word-quantity against the base amount when no pack mentioned', () => {
+    expect(parsePortionNote('half', foodA)).toEqual({ quantity: 50 });
+  });
+  it('resolves counts and words for per-item foods', () => {
+    expect(parsePortionNote('2 scoops', foodB)).toEqual({ quantity: 2 });
+    expect(parsePortionNote('double', foodB)).toEqual({ quantity: 2 });
+  });
+  it('flags a vague note for AI estimation', () => {
+    expect(parsePortionNote('a big handful', foodA)).toEqual({ estimate: true });
+  });
+  it('returns null for an empty note', () => {
+    expect(parsePortionNote('', foodA)).toBeNull();
   });
 });
 

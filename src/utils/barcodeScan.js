@@ -12,3 +12,21 @@ export async function detectBarcodeFromImage(bitmapSource) {
     return result?.getText() || null;
   } catch { return null; }
 }
+
+// Convenience: detect a barcode in a base64 data URL. Returns the code or null,
+// never throws — a missing/unsupported detector just means "no barcode here".
+export async function detectBarcodeFromDataUrl(dataUrl) {
+  try {
+    if ('BarcodeDetector' in window) {
+      const blob = await (await fetch(dataUrl)).blob();
+      const bitmap = await createImageBitmap(blob);
+      return await detectBarcodeFromImage(bitmap);
+    }
+    const img = new Image();
+    img.src = dataUrl;
+    await img.decode();
+    return await detectBarcodeFromImage(img);
+  } catch {
+    return null;
+  }
+}

@@ -16,6 +16,11 @@ describe('lookupBarcode', () => {
     expect(food).toMatchObject({ name: 'Baked Beans', calories: 78, protein: 4.7, carbs: 13, fat: 0.6, source: 'off', barcode: '5000' });
     expect(food.base).toEqual({ amount: 100, unit: 'g' });
   });
+  it('captures pack size from product_quantity', async () => {
+    const withPack = { status: 1, product: { ...okProduct.product, product_quantity: 240, product_quantity_unit: 'g' } };
+    const food = await lookupBarcode('5000', { fetchImpl: mkFetch(withPack) });
+    expect(food.packSize).toEqual({ amount: 240, unit: 'g' });
+  });
   it('returns null when product not found', async () => {
     expect(await lookupBarcode('0000', { fetchImpl: mkFetch({ status: 0 }) })).toBeNull();
   });

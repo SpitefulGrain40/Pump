@@ -1,8 +1,8 @@
 import { labelToBaseFood } from './foodLibrary';
 
-const BARCODE_URL = (code) => `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,nutriments,code`;
+const BARCODE_URL = (code) => `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,nutriments,code,product_quantity,product_quantity_unit`;
 const SEARCH_URL = (q, limit) =>
-  `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=${limit}&fields=product_name,nutriments`;
+  `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=${limit}&fields=product_name,nutriments,product_quantity,product_quantity_unit`;
 
 // Browsers cannot set OFF's requested custom User-Agent; reads still work. We
 // cache aggressively at the resolver layer and never throw — misses return
@@ -11,8 +11,12 @@ function toFood(product, barcode = null) {
   const n = product?.nutriments || {};
   const calories = n['energy-kcal_100g'];
   if (product?.product_name == null || calories == null) return null;
+  const packQty = Number(product.product_quantity);
+  const packSize = Number.isFinite(packQty) && packQty > 0
+    ? { amount: packQty, unit: product.product_quantity_unit || 'g' }
+    : null;
   return labelToBaseFood({
-    name: product.product_name, source: 'off', barcode,
+    name: product.product_name, source: 'off', barcode, packSize,
     per100g: { calories, protein: n.proteins_100g, carbs: n.carbohydrates_100g, fat: n.fat_100g },
   });
 }
