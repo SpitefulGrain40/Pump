@@ -1,0 +1,4 @@
+[
+  { "name": "Beef, roast", "kcalPer100g": 183, "proteinPer100g": 29.2, "carbsPer100g": 0, "fatPer100g": 7.3, "category": "Meat" },
+  { "name": "Chicken breast, grilled", "kcalPer100g": 148, "proteinPer100g": 32, "carbsPer100g": 0, "fatPer100g": 2.2, "category": "Meat" }
+]
