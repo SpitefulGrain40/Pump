@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  normalizeUnit, scaleFood, parseFoodInput, parseQuantityWord, parsePortionNote, fuzzyMatch, labelToBaseFood, addOrUpdateFood, touchEntry,
+  normalizeUnit, scaleFood, parseFoodInput, parseQuantityWord, parsePortionNote, unitToBaseQuantity, fuzzyMatch, labelToBaseFood, addOrUpdateFood, touchEntry,
 } from './foodLibrary';
 
 const chicken = { id: 'food-1', kind: 'food', name: 'Chicken breast', base: { amount: 100, unit: 'g' },
@@ -74,6 +74,28 @@ describe('parsePortionNote', () => {
   });
   it('returns null for an empty note', () => {
     expect(parsePortionNote('', foodA)).toBeNull();
+  });
+});
+
+describe('unitToBaseQuantity', () => {
+  const perItemEgg = { base: { amount: 1, unit: 'egg' } };
+  const per100g = { base: { amount: 100, unit: 'g' } };
+
+  it('returns the exact quantity when the parsed unit matches the base unit', () => {
+    expect(unitToBaseQuantity({ quantity: 2, unit: 'egg' }, perItemEgg)).toEqual({ quantity: 2, exact: true });
+  });
+  it('returns exact for an explicit weight against a weight base', () => {
+    expect(unitToBaseQuantity({ quantity: 120, unit: 'g' }, per100g)).toEqual({ quantity: 120, exact: true });
+  });
+  it('converts a count of a known item to grams for a per-weight food', () => {
+    // 2 eggs × 50g standard = 100g
+    expect(unitToBaseQuantity({ quantity: 2, unit: 'egg' }, per100g)).toEqual({ quantity: 100, exact: false });
+  });
+  it('flags a count of unknown weight for conversion', () => {
+    expect(unitToBaseQuantity({ quantity: 1, unit: 'can' }, per100g)).toEqual({ needsConversion: true });
+  });
+  it('returns null when there is no quantity', () => {
+    expect(unitToBaseQuantity({ name: 'x' }, per100g)).toBeNull();
   });
 });
 

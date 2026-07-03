@@ -23,6 +23,30 @@ function isKnownUnit(word) {
   return n === 'g' || n === 'ml' || n === 'kg' || n === 'l' || ITEM_UNITS.has(n);
 }
 
+// Standard weights (grams) for common countable items, used to convert a count
+// ("2 eggs") into the base unit of a per-weight food. Container-ish units
+// (can/cup/pack/serving/bowl) vary too much by food, so they're left to AI.
+const UNIT_GRAMS = {
+  egg: 50, slice: 30, rasher: 25, sausage: 45, scoop: 30,
+  clove: 5, tbsp: 15, tsp: 5, handful: 30, fillet: 120, breast: 170,
+};
+
+// Convert a parsed quantity into the food's base unit.
+//  - { quantity, exact: true }  → units match (or a bare weight); use directly
+//  - { quantity, exact: false } → converted a count to grams (approximate)
+//  - { needsConversion: true }  → a count of unknown weight (needs AI/manual)
+//  - null                       → no quantity to convert
+export function unitToBaseQuantity(parsed, food) {
+  if (parsed?.quantity == null) return null;
+  const bUnit = normalizeUnit(food?.base?.unit);
+  const pUnit = parsed.unit ? normalizeUnit(parsed.unit) : null;
+  if (!pUnit || pUnit === bUnit) return { quantity: parsed.quantity, exact: true };
+  if ((bUnit === 'g' || bUnit === 'ml') && UNIT_GRAMS[pUnit] != null) {
+    return { quantity: round1(parsed.quantity * UNIT_GRAMS[pUnit]), exact: false };
+  }
+  return { needsConversion: true };
+}
+
 // Word/fraction quantities understood as a multiplier of a food's base amount,
 // for when the user doesn't know an exact number ("half a portion of X").
 const QUANTITY_WORDS = { half: 0.5, quarter: 0.25, third: 1 / 3, double: 2, triple: 3, couple: 2 };

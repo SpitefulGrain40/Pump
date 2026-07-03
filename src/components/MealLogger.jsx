@@ -3,7 +3,7 @@ import { X, Camera, Image, Loader2, Check, Trash2, Bookmark } from 'lucide-react
 import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useSettings } from '../hooks/useSettings';
 import { useFoodLibrary } from '../hooks/useFoodLibrary';
-import { parseFoodInput, parsePortionNote, normalizeUnit, scaleFood, round1 } from '../utils/foodLibrary';
+import { parseFoodInput, parsePortionNote, unitToBaseQuantity, scaleFood, round1 } from '../utils/foodLibrary';
 import { resolveNutrition, resolveFromPhoto } from '../utils/nutritionResolver';
 import { createLibraryFood } from '../utils/dataSchemas';
 import { detectBarcodeFromDataUrl } from '../utils/barcodeScan';
@@ -52,19 +52,34 @@ export default function MealLogger({ onClose }) {
     draftInputRef.current?.focus();
   };
 
-  // Pick a resolved food: honour an inline-parsed quantity when its unit matches
-  // the food's base unit, else open the quantity sheet (pre-filled from a
-  // word-quantity multiplier — "half a portion of..." — when one was given).
-  const pickFood = (food) => {
+  const addFoodScaled = (food, quantity) => {
+    if (food.id) touch(food.id);
+    addScaledItem({ name: food.name, quantity, unit: food.base.unit, ...scaleFood(food, quantity), source: food.source });
+  };
+
+  // Pick a resolved food and apply whatever quantity was typed:
+  //  - exact unit match ("120g roast beef", "2 eggs" of a per-egg food) → add directly
+  //  - known count → weight ("2 eggs" of a per-100g food) → open sheet pre-filled (approx)
+  //  - word multiplier ("half a portion of...") → open sheet pre-filled
+  //  - unknown count / no quantity → AI-estimate the amount if possible, else base amount
+  const pickFood = async (food) => {
     const parsed = parseFoodInput(draft);
-    if (parsed.quantity && (!parsed.unit || normalizeUnit(parsed.unit) === normalizeUnit(food.base.unit))) {
-      touch(food.id);
-      addScaledItem({ name: food.name, quantity: parsed.quantity, unit: food.base.unit, ...scaleFood(food, parsed.quantity), source: food.source });
-    } else if (parsed.quantityMultiplier != null) {
+    const conv = unitToBaseQuantity(parsed, food);
+
+    if (conv?.exact) { addFoodScaled(food, conv.quantity); return; }
+    if (conv && conv.quantity != null) { setQuantityFood({ food, initialQuantity: conv.quantity }); return; }
+    if (parsed.quantityMultiplier != null) {
       setQuantityFood({ food, initialQuantity: round1(parsed.quantityMultiplier * food.base.amount) });
-    } else {
-      setQuantityFood({ food, initialQuantity: parsed.quantity ?? food.base.amount });
+      return;
     }
+    if (conv?.needsConversion && isConfigured()) {
+      try {
+        const q = await estimatePortionQuantity(food, draft.trim());
+        setQuantityFood({ food, initialQuantity: q });
+        return;
+      } catch { /* fall through to a base-amount sheet */ }
+    }
+    setQuantityFood({ food, initialQuantity: food.base.amount });
   };
 
   const pickMeal = (meal) => {
@@ -82,7 +97,7 @@ export default function MealLogger({ onClose }) {
     setEstimating(true);
     try {
       const resolved = await resolveNutrition({ query: parsed.name, library: foods });
-      if (resolved) { pickFood(resolved.food); return; }
+      if (resolved) { await pickFood(resolved.food); return; }
       // Tier 4: AI estimate on the whole phrase.
       if (!isConfigured()) { setError('Configure AI provider in Settings first'); return; }
       const item = await estimateItem(draft.trim());
