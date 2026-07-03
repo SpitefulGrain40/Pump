@@ -31,3 +31,6 @@ dist-ssr
 *.sln
 *.sw?
 .superpowers/
+
+# CoFID source workbook (only the generated JSON is committed)
+scripts/cofid-source.xlsx
