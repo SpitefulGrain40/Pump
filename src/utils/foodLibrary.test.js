@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  normalizeUnit, scaleFood, parseFoodInput, fuzzyMatch, labelToBaseFood, addOrUpdateFood, touchEntry,
+  normalizeUnit, scaleFood, parseFoodInput, parseQuantityWord, fuzzyMatch, labelToBaseFood, addOrUpdateFood, touchEntry,
 } from './foodLibrary';
 
 const chicken = { id: 'food-1', kind: 'food', name: 'Chicken breast', base: { amount: 100, unit: 'g' },
@@ -29,6 +29,40 @@ describe('parseFoodInput', () => {
   });
   it('returns name only when there is no quantity', () => {
     expect(parseFoodInput('roast beef')).toEqual({ name: 'roast beef' });
+  });
+
+  it('parses a leading word-quantity with filler words', () => {
+    expect(parseFoodInput('half a portion of chicken breast')).toEqual({ name: 'chicken breast', quantityMultiplier: 0.5 });
+  });
+  it('parses a bare word-quantity with no filler', () => {
+    expect(parseFoodInput('double rice')).toEqual({ name: 'rice', quantityMultiplier: 2 });
+  });
+  it('parses "a couple of X"', () => {
+    expect(parseFoodInput('a couple of eggs')).toEqual({ name: 'eggs', quantityMultiplier: 2 });
+  });
+  it('parses a leading bare fraction', () => {
+    expect(parseFoodInput('3/4 chicken breast')).toEqual({ name: 'chicken breast', quantityMultiplier: 0.75 });
+  });
+});
+
+describe('parseQuantityWord', () => {
+  it('maps known words to multipliers', () => {
+    expect(parseQuantityWord('half')).toBe(0.5);
+    expect(parseQuantityWord('quarter')).toBe(0.25);
+    expect(parseQuantityWord('double')).toBe(2);
+    expect(parseQuantityWord('triple')).toBe(3);
+    expect(parseQuantityWord('couple')).toBe(2);
+  });
+  it('is case-insensitive', () => {
+    expect(parseQuantityWord('Half')).toBe(0.5);
+  });
+  it('parses bare fractions', () => {
+    expect(parseQuantityWord('3/4')).toBe(0.75);
+    expect(parseQuantityWord('1/2')).toBe(0.5);
+  });
+  it('returns null for unrecognised words', () => {
+    expect(parseQuantityWord('chicken')).toBeNull();
+    expect(parseQuantityWord('')).toBeNull();
   });
 });
 

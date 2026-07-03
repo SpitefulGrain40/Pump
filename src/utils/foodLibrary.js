@@ -1,6 +1,6 @@
 import { createLibraryFood } from './dataSchemas';
 
-const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
+export const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
 
 const WEIGHT_UNITS = { g: 'g', gram: 'g', grams: 'g', ml: 'ml', milliliter: 'ml', millilitre: 'ml', kg: 'kg', l: 'l' };
 
@@ -21,6 +21,25 @@ export function normalizeUnit(unit) {
 function isKnownUnit(word) {
   const n = normalizeUnit(word);
   return n === 'g' || n === 'ml' || n === 'kg' || n === 'l' || ITEM_UNITS.has(n);
+}
+
+// Word/fraction quantities understood as a multiplier of a food's base amount,
+// for when the user doesn't know an exact number ("half a portion of X").
+const QUANTITY_WORDS = { half: 0.5, quarter: 0.25, third: 1 / 3, double: 2, triple: 3, couple: 2 };
+const FRACTION = /^(\d+)\s*\/\s*(\d+)$/;
+// Filler consumed between a quantity word and the food name: "half [a portion of] chicken".
+const FILLER_WORDS = new Set(['a', 'an', 'the', 'portion', 'serving', 'of']);
+
+export function parseQuantityWord(word) {
+  const w = String(word || '').trim().toLowerCase();
+  if (!w) return null;
+  if (QUANTITY_WORDS[w] != null) return QUANTITY_WORDS[w];
+  const frac = w.match(FRACTION);
+  if (frac) {
+    const denom = Number(frac[2]);
+    return denom ? Number(frac[1]) / denom : null;
+  }
+  return null;
 }
 
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -44,6 +63,23 @@ const LEADING_COUNT = /^(\d+(?:\.\d+)?)\s+(.+)$/i;
 
 export function parseFoodInput(text) {
   const t = String(text || '').trim();
+
+  // 0. Leading word/fraction quantity: "half a portion of chicken breast",
+  //    "a couple of eggs", "double rice", "3/4 chicken breast". Returns a
+  //    multiplier (of the resolved food's base amount) instead of an absolute
+  //    quantity, since we don't know the base unit yet at parse time.
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    let i = 0;
+    if (['a', 'an'].includes(words[0].toLowerCase()) && parseQuantityWord(words[1]) != null) i = 1;
+    const qw = parseQuantityWord(words[i]);
+    if (qw != null) {
+      let j = i + 1;
+      while (j < words.length && FILLER_WORDS.has(words[j].toLowerCase())) j++;
+      const name = words.slice(j).join(' ').trim();
+      if (name) return { name, quantityMultiplier: qw };
+    }
+  }
 
   // 1. Explicit unit + name: "320g roast beef", "1 scoop whey".
   let m = t.match(LEADING_UNIT);
