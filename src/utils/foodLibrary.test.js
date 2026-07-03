@@ -1,0 +1,83 @@
+import { describe, it, expect } from 'vitest';
+import {
+  normalizeUnit, scaleFood, parseFoodInput, fuzzyMatch, labelToBaseFood, addOrUpdateFood, touchEntry,
+} from './foodLibrary';
+
+const chicken = { id: 'food-1', kind: 'food', name: 'Chicken breast', base: { amount: 100, unit: 'g' },
+  calories: 165, protein: 31, carbs: 0, fat: 3.6, source: 'cofid', useCount: 0, lastUsed: '2026-01-01T00:00:00Z' };
+const egg = { id: 'food-2', kind: 'food', name: 'Egg, boiled', base: { amount: 1, unit: 'egg' },
+  calories: 78, protein: 6, carbs: 0.6, fat: 5, source: 'cofid', useCount: 0, lastUsed: '2026-01-01T00:00:00Z' };
+
+describe('scaleFood', () => {
+  it('scales a per-100g food by grams', () => {
+    expect(scaleFood(chicken, 320)).toEqual({ calories: 528, protein: 99.2, carbs: 0, fat: 11.5 });
+  });
+  it('scales a per-item food by count', () => {
+    expect(scaleFood(egg, 2)).toEqual({ calories: 156, protein: 12, carbs: 1.2, fat: 10 });
+  });
+});
+
+describe('parseFoodInput', () => {
+  it('parses a leading amount+unit', () => {
+    expect(parseFoodInput('320g roast beef')).toEqual({ name: 'roast beef', quantity: 320, unit: 'g' });
+  });
+  it('parses a trailing amount+unit', () => {
+    expect(parseFoodInput('roast beef 320 g')).toEqual({ name: 'roast beef', quantity: 320, unit: 'g' });
+  });
+  it('parses a per-item count and singularises the unit', () => {
+    expect(parseFoodInput('2 eggs')).toEqual({ name: 'eggs', quantity: 2, unit: 'egg' });
+  });
+  it('returns name only when there is no quantity', () => {
+    expect(parseFoodInput('roast beef')).toEqual({ name: 'roast beef' });
+  });
+});
+
+describe('fuzzyMatch', () => {
+  it('finds a food regardless of word order', () => {
+    const res = fuzzyMatch('roast beef', [{ name: 'Beef, roast' }, { name: 'Chicken' }]);
+    expect(res[0].name).toBe('Beef, roast');
+  });
+  it('tie-breaks by useCount then lastUsed', () => {
+    const a = { name: 'Milk', useCount: 1, lastUsed: '2026-01-01T00:00:00Z' };
+    const b = { name: 'Milk', useCount: 5, lastUsed: '2026-01-01T00:00:00Z' };
+    expect(fuzzyMatch('milk', [a, b])[0]).toBe(b);
+  });
+});
+
+describe('labelToBaseFood', () => {
+  it('prefers per-100g as the base', () => {
+    const f = labelToBaseFood({ name: 'Beans', source: 'off', barcode: '123',
+      per100g: { calories: 78, protein: 4.7, carbs: 13, fat: 0.6 },
+      perServing: { calories: 156, protein: 9.4, carbs: 26, fat: 1.2 }, servingSize: { amount: 200, unit: 'g' } });
+    expect(f.base).toEqual({ amount: 100, unit: 'g' });
+    expect(f.calories).toBe(78);
+    expect(f.barcode).toBe('123');
+  });
+  it('falls back to per-serving when no per-100g', () => {
+    const f = labelToBaseFood({ name: 'Bar', source: 'ai',
+      perServing: { calories: 200, protein: 10, carbs: 20, fat: 8 }, servingSize: { amount: 1, unit: 'serving' } });
+    expect(f.base).toEqual({ amount: 1, unit: 'serving' });
+    expect(f.calories).toBe(200);
+  });
+});
+
+describe('addOrUpdateFood', () => {
+  it('dedupes by normalised name + unit, bumping useCount', () => {
+    const lib = [chicken];
+    const out = addOrUpdateFood(lib, { ...chicken, id: 'food-x', calories: 170, useCount: 0 });
+    expect(out).toHaveLength(1);
+    expect(out[0].calories).toBe(170);
+    expect(out[0].useCount).toBe(1);
+  });
+  it('appends a genuinely new food', () => {
+    expect(addOrUpdateFood([chicken], egg)).toHaveLength(2);
+  });
+});
+
+describe('touchEntry', () => {
+  it('bumps useCount and lastUsed for the matching id', () => {
+    const out = touchEntry([chicken], 'food-1');
+    expect(out[0].useCount).toBe(1);
+    expect(new Date(out[0].lastUsed).getTime()).toBeGreaterThan(new Date(chicken.lastUsed).getTime());
+  });
+});
