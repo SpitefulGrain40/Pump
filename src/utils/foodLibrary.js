@@ -177,16 +177,42 @@ export function parsePortionNote(note, food) {
   return { estimate: true };
 }
 
+// Light stemmer so singular/plural queries match ("egg" ~ "eggs").
+const stem = (t) => (t.length > 3 && t.endsWith('s') ? t.slice(0, -1) : t);
+const stemsOf = (s) => norm(s).split(' ').filter(Boolean).map(stem);
+
 export function fuzzyMatch(query, entries, { limit = 8 } = {}) {
-  const q = norm(query);
-  const qTokens = q.split(' ').filter(Boolean);
+  const qNorm = norm(query);
+  if (!qNorm) return [];
+  const qTokens = qNorm.split(' ').filter(Boolean);
+  const qStems = qTokens.map(stem);
+  const qStemKey = qStems.join(' ');
+
   const scored = entries.map((e) => {
-    const name = norm(e.name);
+    const nameNorm = norm(e.name);
+    const nameTokens = nameNorm.split(' ').filter(Boolean);
+    const nameStems = nameTokens.map(stem);
+    // "Head" = the part before the first comma (CoFID names its food identity
+    // there, e.g. "Eggs, chicken, whole, raw" → "Eggs"). A head that matches the
+    // whole query is a much stronger signal than the word appearing mid-name.
+    const headStemKey = stemsOf(String(e.name).split(',')[0]).join(' ');
+
+    // A candidate only counts if it actually shares a word (or substring) with
+    // the query — otherwise the tie-breaker bonuses below would match everything.
+    const wholeWordHits = qStems.filter((qs) => nameStems.includes(qs)).length;
+    const hasHit = wholeWordHits > 0 || nameNorm.includes(qNorm);
+    if (!hasHit) return { e, score: 0 };
+
     let score = 0;
-    if (name === q) score += 100;
-    if (name.startsWith(q)) score += 30;
-    if (name.includes(q)) score += 15;
-    for (const tok of qTokens) if (name.includes(tok)) score += 5;
+    if (nameNorm === qNorm) score += 100;
+    if (headStemKey === qStemKey) score += 60;
+    if (wholeWordHits === qStems.length) score += 30; // all query tokens present
+    score += wholeWordHits * 10;
+    if (nameNorm.startsWith(qNorm)) score += 8;
+    else if (nameNorm.includes(qNorm)) score += 4;
+    // Prefer concise names — fewer extra words than the query means more relevant.
+    score += Math.max(0, 5 - Math.max(0, nameTokens.length - qTokens.length));
+
     return { e, score };
   }).filter((x) => x.score > 0);
 

@@ -130,6 +130,14 @@ describe('fuzzyMatch', () => {
     const b = { name: 'Milk', useCount: 5, lastUsed: '2026-01-01T00:00:00Z' };
     expect(fuzzyMatch('milk', [a, b])[0]).toBe(b);
   });
+  it('ranks the literal food above a dish that merely starts with the word', () => {
+    const res = fuzzyMatch('egg', [{ name: 'Egg Fu Yung' }, { name: 'Eggs, chicken, whole, raw' }]);
+    expect(res[0].name).toBe('Eggs, chicken, whole, raw');
+  });
+  it('matches a singular query to a plural head (egg → Eggs, ...)', () => {
+    const res = fuzzyMatch('egg', [{ name: 'Egg fried rice, takeaway' }, { name: 'Eggs, chicken, boiled' }, { name: 'Chicken' }]);
+    expect(res[0].name).toBe('Eggs, chicken, boiled');
+  });
 });
 
 describe('labelToBaseFood', () => {
