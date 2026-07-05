@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveNutrition, resolveFromPhoto } from './nutritionResolver';
+import { resolveNutrition, resolveFromPhoto, searchSuggestions } from './nutritionResolver';
 
 const mkDeps = (over = {}) => ({
   lookupBarcode: vi.fn().mockResolvedValue(null),
@@ -37,6 +37,34 @@ describe('resolveNutrition', () => {
   it('returns null when nothing matches', async () => {
     const r = await resolveNutrition({ query: 'zzz', library: [], deps: mkDeps() });
     expect(r).toBeNull();
+  });
+});
+
+describe('searchSuggestions', () => {
+  it('combines library and CoFID matches, library first', () => {
+    const lib = [food('My Chicken Thing', 'manual')];
+    const deps = mkDeps({ searchCofid: vi.fn().mockReturnValue([food('Chicken, breast, grilled', 'cofid')]) });
+    const res = searchSuggestions('chicken', { library: lib, deps });
+    expect(res.foods[0].name).toBe('My Chicken Thing');
+    expect(res.foods[1].name).toBe('Chicken, breast, grilled');
+  });
+  it('searches saved meals separately from foods', () => {
+    const meals = [{ kind: 'meal', name: 'My usual breakfast' }];
+    const res = searchSuggestions('breakfast', { library: [], meals, deps: mkDeps() });
+    expect(res.meals[0].name).toBe('My usual breakfast');
+  });
+  it('caps combined foods at the limit, filling remaining slots from CoFID', () => {
+    const lib = [food('Chicken A', 'manual'), food('Chicken B', 'manual')];
+    const deps = mkDeps({ searchCofid: vi.fn().mockReturnValue([food('Chicken C', 'cofid'), food('Chicken D', 'cofid'), food('Chicken E', 'cofid')]) });
+    const res = searchSuggestions('chicken', { library: lib, deps, limit: 3 });
+    expect(res.foods).toHaveLength(3);
+    expect(res.foods.map((f) => f.name)).toEqual(['Chicken A', 'Chicken B', 'Chicken C']);
+  });
+  it('never calls the network (OFF) — CoFID and library are synchronous only', () => {
+    const deps = mkDeps();
+    searchSuggestions('chicken', { library: [], deps });
+    expect(deps.searchProducts).not.toHaveBeenCalled();
+    expect(deps.lookupBarcode).not.toHaveBeenCalled();
   });
 });
 

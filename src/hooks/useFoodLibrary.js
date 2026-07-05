@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useLocalStorageArray } from './useLocalStorage';
-import { addOrUpdateFood, touchEntry, fuzzyMatch } from '../utils/foodLibrary';
+import { addOrUpdateFood, touchEntry } from '../utils/foodLibrary';
 import { createSavedMeal } from '../utils/dataSchemas';
 
 export function useFoodLibrary() {
@@ -14,10 +14,5 @@ export function useFoodLibrary() {
     setItems((prev) => [...prev, createSavedMeal({ name, components })]), [setItems]);
   const touch = useCallback((id) => setItems((prev) => touchEntry(prev, id)), [setItems]);
 
-  const search = useCallback((query) => ({
-    foods: fuzzyMatch(query, foods, { limit: 6 }),
-    meals: fuzzyMatch(query, meals, { limit: 3 }),
-  }), [foods, meals]);
-
-  return { foods, meals, saveFood, saveMeal, removeEntry: remove, touch, search };
+  return { foods, meals, saveFood, saveMeal, removeEntry: remove, touch };
 }

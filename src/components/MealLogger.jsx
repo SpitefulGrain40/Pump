@@ -4,7 +4,7 @@ import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { useSettings } from '../hooks/useSettings';
 import { useFoodLibrary } from '../hooks/useFoodLibrary';
 import { parseFoodInput, parsePortionNote, unitToBaseQuantity, scaleFood, round1 } from '../utils/foodLibrary';
-import { resolveNutrition, resolveFromPhoto } from '../utils/nutritionResolver';
+import { resolveNutrition, resolveFromPhoto, searchSuggestions } from '../utils/nutritionResolver';
 import { createLibraryFood } from '../utils/dataSchemas';
 import { detectBarcodeFromDataUrl } from '../utils/barcodeScan';
 import { lookupBarcode } from '../utils/openFoodFacts';
@@ -14,7 +14,7 @@ import QuantitySheet from './food/QuantitySheet';
 export default function MealLogger({ onClose }) {
   const { logMeal } = useNutritionLogs();
   const { isConfigured } = useSettings();
-  const { foods, saveFood, saveMeal, touch, search } = useFoodLibrary();
+  const { foods, meals: savedMeals, saveFood, saveMeal, touch } = useFoodLibrary();
   const fileInputRef = useRef(null);
   const draftInputRef = useRef(null);
 
@@ -41,8 +41,9 @@ export default function MealLogger({ onClose }) {
     { calories: 0, protein: 0, carbs: 0, fat: 0 }
   );
 
+  // Live, network-free suggestions: personal library + bundled CoFID.
   const suggestions = draft.trim().length >= 2
-    ? search(parseFoodInput(draft).name)
+    ? searchSuggestions(parseFoodInput(draft).name, { library: foods, meals: savedMeals })
     : { foods: [], meals: [] };
 
   const addScaledItem = (item) => {

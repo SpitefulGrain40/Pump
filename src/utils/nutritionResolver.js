@@ -24,6 +24,20 @@ export async function resolveNutrition({ barcode, query, library = [], deps = de
   return null;
 }
 
+// Live-typing suggestions: personal library + bundled CoFID, both synchronous
+// and network-free, so this is safe to call on every keystroke with no
+// debounce. Library matches are prioritised, CoFID fills the remaining slots.
+// Open Food Facts is intentionally excluded — it's network/rate-limited and
+// only used via barcode scan or on explicit submit (resolveNutrition).
+export function searchSuggestions(query, { library = [], meals = [], deps = defaultDeps, limit = 6 } = {}) {
+  const libFoods = fuzzyMatch(query, library, { limit });
+  const cofidFoods = deps.searchCofid(query, deps.cofidData, { limit });
+  return {
+    foods: [...libFoods, ...cofidFoods].slice(0, limit),
+    meals: fuzzyMatch(query, meals, { limit: 3 }),
+  };
+}
+
 // Maps the photo prompt output onto resolveNutrition, falling back to the
 // AI-transcribed numbers tagged verified:false.
 export async function resolveFromPhoto(identification, { library = [], deps = defaultDeps } = {}) {
