@@ -58,25 +58,25 @@ export default function MealLogger({ onClose }) {
     addScaledItem({ name: food.name, quantity, unit: food.base.unit, ...scaleFood(food, quantity), source: food.source });
   };
 
-  // Pick a resolved food and apply whatever quantity was typed:
-  //  - exact unit match ("120g roast beef", "2 eggs" of a per-egg food) → add directly
-  //  - known count → weight ("2 eggs" of a per-100g food) → open sheet pre-filled (approx)
-  //  - word multiplier ("half a portion of...") → open sheet pre-filled
-  //  - unknown count / no quantity → AI-estimate the amount if possible, else base amount
+  // Pick a resolved food and apply whatever quantity was typed. "Good enough,
+  // zero friction": any time a quantity can be determined AT ALL — exact,
+  // standard-weight conversion, word/fraction, or AI-estimated — log it
+  // directly, no confirm tap. The confirm sheet is reserved for the one
+  // genuine fallback: no quantity info was given at all.
   const pickFood = async (food) => {
     const parsed = parseFoodInput(draft);
     const conv = unitToBaseQuantity(parsed, food);
 
     if (conv?.exact) { addFoodScaled(food, conv.quantity); return; }
-    if (conv && conv.quantity != null) { setQuantityFood({ food, initialQuantity: conv.quantity }); return; }
+    if (conv && conv.quantity != null) { addFoodScaled(food, conv.quantity); return; }
     if (parsed.quantityMultiplier != null) {
-      setQuantityFood({ food, initialQuantity: round1(parsed.quantityMultiplier * food.base.amount) });
+      addFoodScaled(food, round1(parsed.quantityMultiplier * food.base.amount));
       return;
     }
     if (conv?.needsConversion && isConfigured()) {
       try {
         const q = await estimatePortionQuantity(food, draft.trim());
-        setQuantityFood({ food, initialQuantity: q });
+        addFoodScaled(food, q);
         return;
       } catch { /* fall through to a base-amount sheet */ }
     }
@@ -156,18 +156,15 @@ export default function MealLogger({ onClose }) {
   };
 
   // Apply a portion note to an identified food in one shot: resolve the note to a
-  // quantity deterministically, else AI-estimate it (per user preference), else
-  // open the confirm sheet at the base amount.
+  // quantity deterministically or via AI estimate and log directly (zero
+  // friction) — the confirm sheet is only a fallback for a genuinely empty note.
   const applyPortion = async (food, note) => {
     const parsed = parsePortionNote(note, food);
-    if (parsed?.quantity) {
-      addScaledItem({ name: food.name, quantity: parsed.quantity, unit: food.base.unit, ...scaleFood(food, parsed.quantity), source: food.source });
-      return;
-    }
+    if (parsed?.quantity) { addFoodScaled(food, parsed.quantity); return; }
     if (parsed?.estimate && isConfigured()) {
       try {
         const q = await estimatePortionQuantity(food, note);
-        setQuantityFood({ food, initialQuantity: q }); // pre-fill guess for a final confirm/tweak
+        addFoodScaled(food, q);
         return;
       } catch { /* fall through to a plain confirm sheet */ }
     }
