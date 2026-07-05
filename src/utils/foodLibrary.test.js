@@ -27,6 +27,12 @@ describe('parseFoodInput', () => {
   it('parses a per-item count and singularises the unit', () => {
     expect(parseFoodInput('2 eggs')).toEqual({ name: 'eggs', quantity: 2, unit: 'egg' });
   });
+  it('recognises a trailing unit noun within a multi-word food name', () => {
+    expect(parseFoodInput('1 chicken breast')).toEqual({ name: 'chicken breast', quantity: 1, unit: 'breast' });
+  });
+  it('leaves the unit undefined when no word in the name is a known unit', () => {
+    expect(parseFoodInput('1 pizza')).toEqual({ name: 'pizza', quantity: 1, unit: undefined });
+  });
   it('returns name only when there is no quantity', () => {
     expect(parseFoodInput('roast beef')).toEqual({ name: 'roast beef' });
   });
@@ -93,6 +99,10 @@ describe('unitToBaseQuantity', () => {
   });
   it('flags a count of unknown weight for conversion', () => {
     expect(unitToBaseQuantity({ quantity: 1, unit: 'can' }, per100g)).toEqual({ needsConversion: true });
+  });
+  it('flags a bare quantity with no unit as needing conversion, never assumes grams', () => {
+    // Regression: "1 chicken breast" must never be silently read as "1 gram".
+    expect(unitToBaseQuantity({ quantity: 1, unit: undefined }, per100g)).toEqual({ needsConversion: true });
   });
   it('returns null when there is no quantity', () => {
     expect(unitToBaseQuantity({ name: 'x' }, per100g)).toBeNull();

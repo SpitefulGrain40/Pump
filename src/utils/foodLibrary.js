@@ -32,15 +32,28 @@ const UNIT_GRAMS = {
 };
 
 // Convert a parsed quantity into the food's base unit.
-//  - { quantity, exact: true }  → units match (or a bare weight); use directly
+//  - { quantity, exact: true }  → units match, or a bare count against an
+//                                 already-discrete base (serving/item/etc.)
 //  - { quantity, exact: false } → converted a count to grams (approximate)
-//  - { needsConversion: true }  → a count of unknown weight (needs AI/manual)
+//  - { needsConversion: true }  → ambiguous — a count of unknown weight, OR a
+//                                 bare number with NO unit against a per-weight
+//                                 food (never silently assumed to mean grams)
 //  - null                       → no quantity to convert
 export function unitToBaseQuantity(parsed, food) {
   if (parsed?.quantity == null) return null;
   const bUnit = normalizeUnit(food?.base?.unit);
   const pUnit = parsed.unit ? normalizeUnit(parsed.unit) : null;
-  if (!pUnit || pUnit === bUnit) return { quantity: parsed.quantity, exact: true };
+
+  if (pUnit === bUnit) return { quantity: parsed.quantity, exact: true };
+
+  if (!pUnit) {
+    // No unit given. Safe to treat the bare number as the base unit only when
+    // the base itself is already a discrete count (serving/scoop/item...) —
+    // a per-weight base (g/ml) must never silently be read as "N grams".
+    if (bUnit !== 'g' && bUnit !== 'ml') return { quantity: parsed.quantity, exact: true };
+    return { needsConversion: true };
+  }
+
   if ((bUnit === 'g' || bUnit === 'ml') && UNIT_GRAMS[pUnit] != null) {
     return { quantity: round1(parsed.quantity * UNIT_GRAMS[pUnit]), exact: false };
   }
@@ -135,13 +148,18 @@ export function parseFoodInput(text) {
     return { name: m[1].trim(), quantity: Number(m[2]), unit: m[3] ? normalizeUnit(m[3]) : undefined };
   }
 
-  // 3. Bare count + name: "2 eggs" → the name doubles as the unit when it's a
-  //    known countable; otherwise it's just a quantity with no unit.
+  // 3. Bare count + name: "2 eggs" (name IS the unit) or "1 chicken breast"
+  //    (unit is just the LAST word of the name — "chicken" stays part of the
+  //    food name, only "breast" is the countable unit). Checking the whole
+  //    remainder first preserves single-word cases like "eggs" exactly.
   m = t.match(LEADING_COUNT);
   if (m) {
     const name = m[2].trim();
-    const asUnit = normalizeUnit(name);
-    return { name, quantity: Number(m[1]), unit: ITEM_UNITS.has(asUnit) ? asUnit : undefined };
+    const nameWords = name.split(/\s+/);
+    const wholeAsUnit = normalizeUnit(name);
+    const lastAsUnit = normalizeUnit(nameWords[nameWords.length - 1]);
+    const unit = ITEM_UNITS.has(wholeAsUnit) ? wholeAsUnit : (ITEM_UNITS.has(lastAsUnit) ? lastAsUnit : undefined);
+    return { name, quantity: Number(m[1]), unit };
   }
 
   return { name: t };
