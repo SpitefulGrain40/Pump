@@ -199,6 +199,27 @@ export function parsePortionNote(note, food) {
 const stem = (t) => (t.length > 3 && t.endsWith('s') ? t.slice(0, -1) : t);
 const stemsOf = (s) => norm(s).split(' ').filter(Boolean).map(stem);
 
+// Cut-name synonyms: CoFID's raw poultry entries are split by light/dark meat
+// rather than by cut, so "breast"/"thigh" need mapping onto that vocabulary to
+// be findable at all when raw. Matches only when ALL synonym words are present.
+const CUT_SYNONYMS = {
+  breast: ['light', 'meat'],
+  thigh: ['dark', 'meat'],
+  leg: ['dark', 'meat'],
+  drumstick: ['dark', 'meat'],
+};
+const tokenMatches = (qStem, nameStems) =>
+  nameStems.includes(qStem) || (CUT_SYNONYMS[qStem]?.every((s) => nameStems.includes(s)) ?? false);
+
+// Recipe/coating words that imply added ingredients beyond a plain cooking
+// method. Penalised UNLESS the user's own query asked for them — so "chicken
+// breast" prefers a plain grilled entry, but "chicken kiev" still finds kiev.
+const PREP_MODIFIERS = new Set([
+  'coated', 'battered', 'breaded', 'stuffed', 'kiev', 'casserole', 'casseroled',
+  'curry', 'curried', 'korma', 'tikka', 'jerk', 'schnitzel', 'nugget', 'goujon',
+  'stir', 'fried', 'marinated', 'glazed', 'gravy', 'sauce',
+]);
+
 export function fuzzyMatch(query, entries, { limit = 8 } = {}) {
   const qNorm = norm(query);
   if (!qNorm) return [];
@@ -217,7 +238,7 @@ export function fuzzyMatch(query, entries, { limit = 8 } = {}) {
 
     // A candidate only counts if it actually shares a word (or substring) with
     // the query — otherwise the tie-breaker bonuses below would match everything.
-    const wholeWordHits = qStems.filter((qs) => nameStems.includes(qs)).length;
+    const wholeWordHits = qStems.filter((qs) => tokenMatches(qs, nameStems)).length;
     const hasHit = wholeWordHits > 0 || nameNorm.includes(qNorm);
     if (!hasHit) return { e, score: 0 };
 
@@ -230,6 +251,9 @@ export function fuzzyMatch(query, entries, { limit = 8 } = {}) {
     else if (nameNorm.includes(qNorm)) score += 4;
     // Prefer concise names — fewer extra words than the query means more relevant.
     score += Math.max(0, 5 - Math.max(0, nameTokens.length - qTokens.length));
+    // Penalise a coating/recipe word the query didn't ask for.
+    const unrequestedModifiers = nameStems.filter((ns) => PREP_MODIFIERS.has(ns) && !qStems.includes(ns)).length;
+    score -= unrequestedModifiers * 15;
 
     return { e, score };
   }).filter((x) => x.score > 0);

@@ -148,6 +148,43 @@ describe('fuzzyMatch', () => {
     const res = fuzzyMatch('egg', [{ name: 'Egg fried rice, takeaway' }, { name: 'Eggs, chicken, boiled' }, { name: 'Chicken' }]);
     expect(res[0].name).toBe('Eggs, chicken, boiled');
   });
+
+  it('ranks a plain preparation above ones with an unrequested coating/recipe', () => {
+    const res = fuzzyMatch('chicken breast', [
+      { name: 'Chicken breast/steak, coated, baked' },
+      { name: 'Chicken, breast, strips, stir-fried in corn oil' },
+      { name: 'Chicken, breast, grilled without skin, meat only' },
+    ]);
+    expect(res[0].name).toBe('Chicken, breast, grilled without skin, meat only');
+  });
+
+  it('does not penalise a recipe word the user actually asked for', () => {
+    const res = fuzzyMatch('chicken kiev', [
+      { name: 'Chicken, breast, grilled without skin, meat only' },
+      { name: 'Chicken kiev, retail, baked' },
+    ]);
+    expect(res[0].name).toBe('Chicken kiev, retail, baked');
+  });
+
+  it('finds raw chicken breast via the breast -> light meat synonym', () => {
+    // Dark-meat-raw listed FIRST so a tie (i.e. the synonym not actually working)
+    // would win by array order — this only passes if "breast" genuinely
+    // resolves to "light meat" and outscores the non-matching dark-meat entry.
+    const res = fuzzyMatch('raw chicken breast', [
+      { name: 'Chicken, dark meat, raw' },
+      { name: 'Chicken, breast, grilled without skin, meat only' },
+      { name: 'Chicken, light meat, raw' },
+    ]);
+    expect(res[0].name).toBe('Chicken, light meat, raw');
+  });
+
+  it('still prefers a literal cooked breast match over the raw synonym when "raw" is not asked for', () => {
+    const res = fuzzyMatch('chicken breast', [
+      { name: 'Chicken, light meat, raw' },
+      { name: 'Chicken, breast, grilled without skin, meat only' },
+    ]);
+    expect(res[0].name).toBe('Chicken, breast, grilled without skin, meat only');
+  });
 });
 
 describe('labelToBaseFood', () => {
