@@ -5,6 +5,7 @@ import { useUserProfile } from '../hooks/useUserProfile';
 import { useWorkoutSchedule } from '../hooks/useWorkoutLogs';
 import { format, addDays, subDays, isToday } from 'date-fns';
 import MealLogger from './MealLogger';
+import { round1 } from '../utils/foodLibrary';
 
 export default function Nutrition() {
   const { getMealsForDate, getDailyTotals, getWeeklyAverage, removeMeal } = useNutritionLogs();
@@ -169,7 +170,7 @@ export default function Nutrition() {
                     <div className="flex justify-between mt-2 pt-2 border-t border-border text-sm font-medium">
                       <span>Total</span>
                       <span>
-                        {meal.totals?.calories || 0} kcal · {meal.totals?.protein || 0}g protein
+                        {round1(meal.totals?.calories)} kcal · {round1(meal.totals?.protein)}g protein
                       </span>
                     </div>
                   </div>

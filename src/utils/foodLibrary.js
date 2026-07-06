@@ -220,7 +220,7 @@ const PREP_MODIFIERS = new Set([
   'stir', 'fried', 'marinated', 'glazed', 'gravy', 'sauce',
 ]);
 
-export function fuzzyMatch(query, entries, { limit = 8 } = {}) {
+export function fuzzyMatch(query, entries, { limit = 8, minCoverage = 0 } = {}) {
   const qNorm = norm(query);
   if (!qNorm) return [];
   const qTokens = qNorm.split(' ').filter(Boolean);
@@ -239,8 +239,17 @@ export function fuzzyMatch(query, entries, { limit = 8 } = {}) {
     // A candidate only counts if it actually shares a word (or substring) with
     // the query — otherwise the tie-breaker bonuses below would match everything.
     const wholeWordHits = qStems.filter((qs) => tokenMatches(qs, nameStems)).length;
-    const hasHit = wholeWordHits > 0 || nameNorm.includes(qNorm);
+    const isFullSubstring = nameNorm.includes(qNorm);
+    const hasHit = wholeWordHits > 0 || isFullSubstring;
     if (!hasHit) return { e, score: 0 };
+    // Below minCoverage, a match is too weak to trust as ground truth — e.g.
+    // "vegan protein 360 protein works black" matching "Vegan Salted Caramel
+    // Ice Cream" on the word "vegan" alone. Callers that just want candidates
+    // for a suggestion dropdown leave minCoverage at 0 (permissive); callers
+    // that commit to a result unconditionally should set a floor.
+    if (minCoverage > 0 && !isFullSubstring && (wholeWordHits / qStems.length) < minCoverage) {
+      return { e, score: 0 };
+    }
 
     let score = 0;
     if (nameNorm === qNorm) score += 100;
@@ -248,7 +257,7 @@ export function fuzzyMatch(query, entries, { limit = 8 } = {}) {
     if (wholeWordHits === qStems.length) score += 30; // all query tokens present
     score += wholeWordHits * 10;
     if (nameNorm.startsWith(qNorm)) score += 8;
-    else if (nameNorm.includes(qNorm)) score += 4;
+    else if (isFullSubstring) score += 4;
     // Prefer concise names — fewer extra words than the query means more relevant.
     score += Math.max(0, 5 - Math.max(0, nameTokens.length - qTokens.length));
     // Penalise a coating/recipe word the query didn't ask for.

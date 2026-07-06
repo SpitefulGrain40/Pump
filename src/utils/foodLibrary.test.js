@@ -185,6 +185,24 @@ describe('fuzzyMatch', () => {
     ]);
     expect(res[0].name).toBe('Chicken, breast, grilled without skin, meat only');
   });
+
+  it('with minCoverage set, rejects a match that only shares one generic word out of many', () => {
+    // "Vegan Protein 360 Protein Works Black" vs "Vegan Salted Caramel Ice
+    // Cream" only share "vegan" — a real bug where this weak overlap won
+    // outright over the actual product because there was no coverage floor.
+    const res = fuzzyMatch('vegan protein 360 protein works black', [{ name: 'Vegan Salted Caramel Ice Cream' }], { minCoverage: 0.5 });
+    expect(res).toHaveLength(0);
+  });
+
+  it('without minCoverage, still returns the weak match (permissive default for suggestion dropdowns)', () => {
+    const res = fuzzyMatch('vegan protein 360 protein works black', [{ name: 'Vegan Salted Caramel Ice Cream' }]);
+    expect(res).toHaveLength(1);
+  });
+
+  it('with minCoverage set, still keeps a genuine majority-word match', () => {
+    const res = fuzzyMatch('chicken breast', [{ name: 'Chicken, breast, grilled without skin, meat only' }], { minCoverage: 0.5 });
+    expect(res).toHaveLength(1);
+  });
 });
 
 describe('labelToBaseFood', () => {

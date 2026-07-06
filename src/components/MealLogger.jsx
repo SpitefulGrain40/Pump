@@ -33,10 +33,10 @@ export default function MealLogger({ onClose }) {
 
   const totals = items.reduce(
     (acc, item) => ({
-      calories: acc.calories + (Number(item.calories) || 0),
-      protein: acc.protein + (Number(item.protein) || 0),
-      carbs: acc.carbs + (Number(item.carbs) || 0),
-      fat: acc.fat + (Number(item.fat) || 0),
+      calories: round1(acc.calories + (Number(item.calories) || 0)),
+      protein: round1(acc.protein + (Number(item.protein) || 0)),
+      carbs: round1(acc.carbs + (Number(item.carbs) || 0)),
+      fat: round1(acc.fat + (Number(item.fat) || 0)),
     }),
     { calories: 0, protein: 0, carbs: 0, fat: 0 }
   );

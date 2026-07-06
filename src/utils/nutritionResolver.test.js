@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { resolveNutrition, resolveFromPhoto, searchSuggestions } from './nutritionResolver';
+import { searchCofid } from './cofid';
 
 const mkDeps = (over = {}) => ({
   lookupBarcode: vi.fn().mockResolvedValue(null),
@@ -37,6 +38,26 @@ describe('resolveNutrition', () => {
   it('returns null when nothing matches', async () => {
     const r = await resolveNutrition({ query: 'zzz', library: [], deps: mkDeps() });
     expect(r).toBeNull();
+  });
+  it('rejects a weak single-word library match and falls through to CoFID', async () => {
+    // Regression: a library food sharing only "vegan" with a much longer
+    // query was winning outright and silently mis-logging the wrong product.
+    const lib = [food('Vegan Salted Caramel Ice Cream', 'off')];
+    const deps = mkDeps({ searchCofid: vi.fn().mockReturnValue([food('Soya protein isolate', 'cofid')]) });
+    const r = await resolveNutrition({ query: 'vegan protein 360 protein works black', library: lib, deps });
+    expect(r.provenance).toBe('cofid');
+  });
+  it('rejects a weak CoFID match too and falls through to OFF', async () => {
+    // Uses the real searchCofid (not a mock) so its own minCoverage filtering
+    // is actually exercised, not just resolveNutrition's pass-through of the option.
+    const cofidData = [{ name: 'Vegan sausage roll', kcalPer100g: 250, proteinPer100g: 10, carbsPer100g: 20, fatPer100g: 12 }];
+    const deps = mkDeps({
+      searchCofid,
+      cofidData,
+      searchProducts: vi.fn().mockResolvedValue([food('Protein Works Vegan Protein 360', 'off')]),
+    });
+    const r = await resolveNutrition({ query: 'vegan protein 360 protein works black', library: [], deps });
+    expect(r.provenance).toBe('off');
   });
 });
 

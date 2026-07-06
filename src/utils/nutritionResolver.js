@@ -12,10 +12,13 @@ export async function resolveNutrition({ barcode, query, library = [], deps = de
     if (food) return { food, provenance: 'off', verified: true };
   }
   if (query) {
-    const libHit = fuzzyMatch(query, library, { limit: 1 })[0];
+    // minCoverage guards against a weak, partial-word match (e.g. sharing only
+    // "vegan") being trusted as ground truth instead of falling through to the
+    // next tier — see fuzzyMatch's minCoverage doc comment.
+    const libHit = fuzzyMatch(query, library, { limit: 1, minCoverage: 0.5 })[0];
     if (libHit) return { food: libHit, provenance: libHit.source || 'manual', verified: libHit.source !== 'ai' };
 
-    const cofidHit = deps.searchCofid(query, deps.cofidData, { limit: 1 })[0];
+    const cofidHit = deps.searchCofid(query, deps.cofidData, { limit: 1, minCoverage: 0.5 })[0];
     if (cofidHit) return { food: cofidHit, provenance: 'cofid', verified: true };
 
     const offHit = (await deps.searchProducts(query, { limit: 1 }))[0];
