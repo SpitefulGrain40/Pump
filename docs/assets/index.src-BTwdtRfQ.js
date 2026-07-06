@@ -129,7 +129,7 @@ Call these to look up real data — never guess or make up numbers:
 - get_performance_summary(): 2-week completion rate, streak, weight change, nutrition averages
 
 ## PLANNING APPROACH
-${t.cycleText?`Use the cycle and the data tools to give specific advice. If the user is progressing well, leave things alone. If they're bored, plateauing, or hitting PRs, call get_workout_templates() to see their current exercises, suggest concrete swaps, and apply with SET_TEMPLATE. Call get_performance_summary() before any progress review. Be honest; don't pad.`:`This user is just getting started. Help them set up their training cycle (SET_CYCLE_TEMPLATE) and build workout templates (SET_TEMPLATE). Ask what their typical weekly routine looks like before suggesting anything. Keep it simple and practical.`}
+${t.cycleText?`Use the cycle and the data tools to give specific advice. If the user is progressing well, leave things alone. If they're bored, plateauing, or hitting PRs, call get_workout_templates() to see their current exercises, suggest concrete swaps, and write a [SET_TEMPLATE: ...] command in your reply to apply them (see YOUR CAPABILITIES below — this is a text command, not a tool call). Call get_performance_summary() before any progress review. Be honest; don't pad.`:`This user is just getting started. Help them set up their training cycle and workout templates by writing [SET_CYCLE_TEMPLATE: ...] and [SET_TEMPLATE: ...] commands in your reply (see YOUR CAPABILITIES below — these are text commands, not tool calls). Ask what their typical weekly routine looks like before suggesting anything. Keep it simple and practical.`}
 
 ## YOUR CAPABILITIES
 When the user wants to log or update data, include these commands in your response:

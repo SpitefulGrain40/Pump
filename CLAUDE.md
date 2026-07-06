@@ -466,3 +466,6 @@ If the bottom sheet appears but buttons are cut off, the modal z-index may be wr
 
 ### Missing Coach confirmations
 Check console for `"Parsed commands:"` — empty array means command format is wrong. Requires exact `[COMMAND: {...}]` syntax with valid JSON inside.
+
+### Coach says template/write "tools aren't available"
+`SET_TEMPLATE`/`UPDATE_TEMPLATE`/`SET_CYCLE_TEMPLATE` are text commands (bracket-JSON parsed from the reply), not Anthropic tools — only the 8 read-only `COACH_TOOLS` in `providers.js` are real tool-use calls. Fixed 2026-07-06: the "PLANNING APPROACH" section of `context.js` used to phrase `SET_TEMPLATE` with the same "call X()" language as the real tools, which could lead Coach to attempt it as a tool call, hit `Unknown tool` in `Coach.jsx`'s executor, and retry in the uncapped tool loop (`providers.js` `sendToAnthropic`) — burning tokens before giving up. If this recurs, check `context.js` for any wording that implies a write command is "callable" rather than something to write as `[COMMAND: {...}]` text.
