@@ -75,7 +75,7 @@ export const COACH_TOOLS = [
   },
   {
     name: 'lookup_nutrition',
-    description: "Look up verified calories/protein/carbs/fat (per 100g or per unit) for a food, by name or barcode. Sources the user's saved food library, the UK CoFID database, and Open Food Facts. Call before logging a meal to ground the numbers in real data instead of guessing.",
+    description: "Look up verified calories/protein/carbs/fat (per 100g or per unit) for a food, by name or barcode. Sources Open Food Facts (barcode-ID lookup or text search) only — never guesses from a fuzzy database match. Call before logging a meal to ground the numbers in real data instead of guessing; if found:false, use get_nutrition_history/your own knowledge instead of inventing numbers.",
     input_schema: {
       type: 'object',
       properties: {

@@ -94,12 +94,15 @@ export default function MealLogger({ onClose }) {
     if (!draft.trim() || estimating) return;
     setError(null);
     const parsed = parseFoodInput(draft.trim());
-    // Tier 1–3: resolve against library → CoFID → OFF before spending AI tokens.
+    // Enter (no suggestion tapped) means none of the visible library/CoFID
+    // candidates were right — skip straight to Open Food Facts, then AI.
+    // Trusting a library/CoFID match here is exactly what tapping the
+    // dropdown is for; Enter never silently commits one on your behalf.
     setEstimating(true);
     try {
-      const resolved = await resolveNutrition({ query: parsed.name, library: foods });
+      const resolved = await resolveNutrition({ query: parsed.name });
       if (resolved) { await pickFood(resolved.food); return; }
-      // Tier 4: AI estimate on the whole phrase.
+      // Nothing on OFF either — AI estimate on the whole phrase.
       if (!isConfigured()) { setError('Configure AI provider in Settings first'); return; }
       const item = await estimateItem(draft.trim());
       setItems((prev) => [...prev, item]);
@@ -205,7 +208,7 @@ export default function MealLogger({ onClose }) {
         setPendingItems((prev) => prev.filter((_, i) => i !== index));
         return;
       }
-      const resolved = await resolveFromPhoto(ident, { library: foods });
+      const resolved = await resolveFromPhoto(ident);
       if (!resolved) { setError('Could not read that — type the food instead'); return; }
       setPendingItems((prev) => prev.filter((_, i) => i !== index));
       await applyPortion(resolved.food, note);

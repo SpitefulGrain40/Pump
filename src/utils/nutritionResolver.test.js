@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { resolveNutrition, resolveFromPhoto, searchSuggestions } from './nutritionResolver';
-import { searchCofid } from './cofid';
 
 const mkDeps = (over = {}) => ({
   lookupBarcode: vi.fn().mockResolvedValue(null),
@@ -14,49 +13,32 @@ const food = (name, source) => ({ name, base: { amount: 100, unit: 'g' }, calori
 describe('resolveNutrition', () => {
   it('barcode → OFF wins as verified', async () => {
     const deps = mkDeps({ lookupBarcode: vi.fn().mockResolvedValue(food('Beans', 'off')) });
-    const r = await resolveNutrition({ barcode: '5000', library: [], deps });
+    const r = await resolveNutrition({ barcode: '5000', deps });
     expect(r).toEqual({ food: expect.objectContaining({ name: 'Beans' }), provenance: 'off', verified: true });
   });
-  it('query → library (Tier 3) preferred over DBs', async () => {
-    const lib = [food('My Chicken', 'manual')];
-    const deps = mkDeps({ searchCofid: vi.fn().mockReturnValue([food('Chicken breast', 'cofid')]) });
-    const r = await resolveNutrition({ query: 'chicken', library: lib, deps });
-    expect(r.provenance).toBe('manual');
-    expect(deps.searchCofid).not.toHaveBeenCalled();
-  });
-  it('query → CoFID when no library hit', async () => {
-    const deps = mkDeps({ searchCofid: vi.fn().mockReturnValue([food('Beef, roast', 'cofid')]) });
-    const r = await resolveNutrition({ query: 'roast beef', library: [], deps });
-    expect(r.provenance).toBe('cofid');
+  it('query → OFF text search', async () => {
+    const deps = mkDeps({ searchProducts: vi.fn().mockResolvedValue([food('Branded Thing', 'off')]) });
+    const r = await resolveNutrition({ query: 'branded thing', deps });
+    expect(r.provenance).toBe('off');
     expect(r.verified).toBe(true);
   });
-  it('query → OFF search when no library or CoFID hit', async () => {
-    const deps = mkDeps({ searchProducts: vi.fn().mockResolvedValue([food('Branded Thing', 'off')]) });
-    const r = await resolveNutrition({ query: 'branded thing', library: [], deps });
-    expect(r.provenance).toBe('off');
-  });
-  it('returns null when nothing matches', async () => {
-    const r = await resolveNutrition({ query: 'zzz', library: [], deps: mkDeps() });
+  it('returns null when OFF has nothing', async () => {
+    const r = await resolveNutrition({ query: 'zzz', deps: mkDeps() });
     expect(r).toBeNull();
   });
-  it('rejects a weak single-word library match and falls through to CoFID', async () => {
-    // Regression: a library food sharing only "vegan" with a much longer
-    // query was winning outright and silently mis-logging the wrong product.
-    const lib = [food('Vegan Salted Caramel Ice Cream', 'off')];
-    const deps = mkDeps({ searchCofid: vi.fn().mockReturnValue([food('Soya protein isolate', 'cofid')]) });
-    const r = await resolveNutrition({ query: 'vegan protein 360 protein works black', library: lib, deps });
-    expect(r.provenance).toBe('cofid');
-  });
-  it('rejects a weak CoFID match too and falls through to OFF', async () => {
-    // Uses the real searchCofid (not a mock) so its own minCoverage filtering
-    // is actually exercised, not just resolveNutrition's pass-through of the option.
-    const cofidData = [{ name: 'Vegan sausage roll', kcalPer100g: 250, proteinPer100g: 10, carbsPer100g: 20, fatPer100g: 12 }];
+  it('never touches library or CoFID, even when they would match — only a verified barcode or OFF text match are trusted', async () => {
+    // Regression: "Cumberland Sausage" used to fuzzy-match CoFID's "Liver
+    // sausage" on the single shared word "sausage" and silently log it. The
+    // committing path no longer tries library/CoFID at all — that's what the
+    // live suggestions dropdown (searchSuggestions) is for; an explicit tap
+    // there is the only way a library/CoFID result is ever used.
     const deps = mkDeps({
-      searchCofid,
-      cofidData,
-      searchProducts: vi.fn().mockResolvedValue([food('Protein Works Vegan Protein 360', 'off')]),
+      searchCofid: vi.fn().mockReturnValue([food('Liver sausage', 'cofid')]),
+      searchProducts: vi.fn().mockResolvedValue([food('Cauldron 6 Cumberland Sausages', 'off')]),
     });
-    const r = await resolveNutrition({ query: 'vegan protein 360 protein works black', library: [], deps });
+    const r = await resolveNutrition({ query: 'cumberland sausage', deps });
+    expect(deps.searchCofid).not.toHaveBeenCalled();
+    expect(r.food.name).toBe('Cauldron 6 Cumberland Sausages');
     expect(r.provenance).toBe('off');
   });
 });
@@ -92,13 +74,24 @@ describe('searchSuggestions', () => {
 describe('resolveFromPhoto', () => {
   it('uses the barcode path when the photo yields a barcode', async () => {
     const deps = mkDeps({ lookupBarcode: vi.fn().mockResolvedValue(food('Scanned', 'off')) });
-    const r = await resolveFromPhoto({ type: 'packaged', barcode: '5000' }, { library: [], deps });
+    const r = await resolveFromPhoto({ type: 'packaged', barcode: '5000' }, { deps });
     expect(r.verified).toBe(true);
+  });
+  it('a name read off a photo never fuzzy-matches library/CoFID — only OFF text search, then the AI-transcribed fallback', async () => {
+    const deps = mkDeps({
+      searchCofid: vi.fn().mockReturnValue([food('Liver sausage', 'cofid')]),
+      searchProducts: vi.fn().mockResolvedValue([]),
+    });
+    const r = await resolveFromPhoto({ type: 'label', productName: 'Cumberland Sausages', per100g: { calories: 90, protein: 5, carbs: 12, fat: 1 } }, { deps });
+    expect(deps.searchCofid).not.toHaveBeenCalled();
+    expect(r.verified).toBe(false);
+    expect(r.provenance).toBe('ai');
+    expect(r.food.calories).toBe(90);
   });
   it('falls back to the transcribed label tagged unverified', async () => {
     const r = await resolveFromPhoto(
       { type: 'label', name: 'Label Food', per100g: { calories: 90, protein: 5, carbs: 12, fat: 1 } },
-      { library: [], deps: mkDeps() },
+      { deps: mkDeps() },
     );
     expect(r.verified).toBe(false);
     expect(r.provenance).toBe('ai');

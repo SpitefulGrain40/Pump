@@ -186,32 +186,14 @@ describe('fuzzyMatch', () => {
     expect(res[0].name).toBe('Chicken, breast, grilled without skin, meat only');
   });
 
-  it('with minCoverage set, rejects a match that only shares one generic word out of many', () => {
-    // "Vegan Protein 360 Protein Works Black" vs "Vegan Salted Caramel Ice
-    // Cream" only share "vegan" — a real bug where this weak overlap won
-    // outright over the actual product because there was no coverage floor.
-    const res = fuzzyMatch('vegan protein 360 protein works black', [{ name: 'Vegan Salted Caramel Ice Cream' }], { minCoverage: 0.5 });
-    expect(res).toHaveLength(0);
-  });
-
-  it('without minCoverage, still returns the weak match (permissive default for suggestion dropdowns)', () => {
+  it('returns weak/partial matches by design — permissive default for suggestion dropdowns', () => {
+    // fuzzyMatch itself stays permissive (no confidence floor): it's only ever
+    // used for the live dropdown (where a human sees and picks) or CoFID/
+    // library search results a caller explicitly wants ranked candidates from.
+    // Nothing silently *commits* a weak match — see nutritionResolver.js,
+    // which never calls fuzzyMatch/searchCofid at all on the committing path.
     const res = fuzzyMatch('vegan protein 360 protein works black', [{ name: 'Vegan Salted Caramel Ice Cream' }]);
     expect(res).toHaveLength(1);
-  });
-
-  it('with minCoverage set, still keeps a genuine majority-word match', () => {
-    const res = fuzzyMatch('chicken breast', [{ name: 'Chicken, breast, grilled without skin, meat only' }], { minCoverage: 0.5 });
-    expect(res).toHaveLength(1);
-  });
-
-  it('with minCoverage 0.5, rejects a 2-word query sharing exactly half its words (boundary)', () => {
-    // Regression: "Cumberland Sausage" vs "Liver sausage" shares only "sausage"
-    // — coverage is EXACTLY 0.5, and a strict "< minCoverage" check let this
-    // slide through as trusted (logging "Liver sausage" instead of falling
-    // through to AI). "At least half" must reject an exact tie for a 2-word
-    // query, since one shared generic word is not enough to trust a match.
-    const res = fuzzyMatch('cumberland sausage', [{ name: 'Liver sausage' }], { minCoverage: 0.5 });
-    expect(res).toHaveLength(0);
   });
 });
 

@@ -220,7 +220,13 @@ const PREP_MODIFIERS = new Set([
   'stir', 'fried', 'marinated', 'glazed', 'gravy', 'sauce',
 ]);
 
-export function fuzzyMatch(query, entries, { limit = 8, minCoverage = 0 } = {}) {
+// Always permissive — no confidence floor. fuzzyMatch only ever powers
+// surfaces where a human sees and picks the result (the live suggestions
+// dropdown) or explicit CoFID/library candidate lists. Nothing downstream
+// silently *commits* to a weak match: the committing path (resolveNutrition
+// in nutritionResolver.js) doesn't call this at all — it only trusts a
+// verified barcode-ID lookup or an Open Food Facts text match.
+export function fuzzyMatch(query, entries, { limit = 8 } = {}) {
   const qNorm = norm(query);
   if (!qNorm) return [];
   const qTokens = qNorm.split(' ').filter(Boolean);
@@ -242,17 +248,6 @@ export function fuzzyMatch(query, entries, { limit = 8, minCoverage = 0 } = {}) 
     const isFullSubstring = nameNorm.includes(qNorm);
     const hasHit = wholeWordHits > 0 || isFullSubstring;
     if (!hasHit) return { e, score: 0 };
-    // Below minCoverage, a match is too weak to trust as ground truth — e.g.
-    // "vegan protein 360 protein works black" matching "Vegan Salted Caramel
-    // Ice Cream" on the word "vegan" alone. Callers that just want candidates
-    // for a suggestion dropdown leave minCoverage at 0 (permissive); callers
-    // that commit to a result unconditionally should set a floor.
-    // Uses <= (not <): an exact tie at the floor must still be rejected, or a
-    // 2-word query sharing just one generic word ("Cumberland Sausage" vs
-    // "Liver sausage", coverage exactly 0.5) slides through as "at least half".
-    if (minCoverage > 0 && !isFullSubstring && (wholeWordHits / qStems.length) <= minCoverage) {
-      return { e, score: 0 };
-    }
 
     let score = 0;
     if (nameNorm === qNorm) score += 100;

@@ -562,8 +562,7 @@ export default function Coach() {
             return buildPerformanceContext(completedDays, weightHistory, meals, schedule, profile);
           case 'lookup_nutrition': {
             const { resolveNutrition } = await import('../utils/nutritionResolver');
-            const library = JSON.parse(localStorage.getItem('pump-food-library') || '[]').filter((e) => e.kind === 'food');
-            const r = await resolveNutrition({ query: input.query, barcode: input.barcode, library });
+            const r = await resolveNutrition({ query: input.query, barcode: input.barcode });
             return r
               ? { found: true, verified: r.verified, provenance: r.provenance, food: r.food }
               : { found: false };
