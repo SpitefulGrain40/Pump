@@ -203,6 +203,16 @@ describe('fuzzyMatch', () => {
     const res = fuzzyMatch('chicken breast', [{ name: 'Chicken, breast, grilled without skin, meat only' }], { minCoverage: 0.5 });
     expect(res).toHaveLength(1);
   });
+
+  it('with minCoverage 0.5, rejects a 2-word query sharing exactly half its words (boundary)', () => {
+    // Regression: "Cumberland Sausage" vs "Liver sausage" shares only "sausage"
+    // — coverage is EXACTLY 0.5, and a strict "< minCoverage" check let this
+    // slide through as trusted (logging "Liver sausage" instead of falling
+    // through to AI). "At least half" must reject an exact tie for a 2-word
+    // query, since one shared generic word is not enough to trust a match.
+    const res = fuzzyMatch('cumberland sausage', [{ name: 'Liver sausage' }], { minCoverage: 0.5 });
+    expect(res).toHaveLength(0);
+  });
 });
 
 describe('labelToBaseFood', () => {

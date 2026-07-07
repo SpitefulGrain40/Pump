@@ -247,7 +247,10 @@ export function fuzzyMatch(query, entries, { limit = 8, minCoverage = 0 } = {}) 
     // Ice Cream" on the word "vegan" alone. Callers that just want candidates
     // for a suggestion dropdown leave minCoverage at 0 (permissive); callers
     // that commit to a result unconditionally should set a floor.
-    if (minCoverage > 0 && !isFullSubstring && (wholeWordHits / qStems.length) < minCoverage) {
+    // Uses <= (not <): an exact tie at the floor must still be rejected, or a
+    // 2-word query sharing just one generic word ("Cumberland Sausage" vs
+    // "Liver sausage", coverage exactly 0.5) slides through as "at least half".
+    if (minCoverage > 0 && !isFullSubstring && (wholeWordHits / qStems.length) <= minCoverage) {
       return { e, score: 0 };
     }
 
