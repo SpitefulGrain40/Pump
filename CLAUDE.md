@@ -381,7 +381,7 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD-HHMMSS`, date **and
 
 ---
 
-## Current State (as of 2026-07-05)
+## Current State (as of 2026-07-07)
 
 ### Completed & Working
 - **Goal-driven dashboard** — two-axis model: training **intent** (cut/recomp/bulk/maintain) + **primary metric** (weight/lean-mass/body-fat/waist/strength). GoalCard hero on Home + Progress, secondary-metric strip, per-metric optional target+date.
@@ -414,7 +414,7 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD-HHMMSS`, date **and
 - Workout logger Finish is **hold-to-confirm** (1.2s fill bar) to avoid accidental completion
 - Coach chat search jumps to the top of results and scrolls through all matches
 - Prompt caching on Anthropic API calls (system prompt cached)
-- **Vitest** unit tests for cycle logic (`utils/schedule.test.js`), goal/metrics pure logic (`utils/goal.js`, `utils/metrics.js`), Progress-tab maths (`utils/progressCalcs.test.js`), and smart food logging (`utils/foodLibrary.test.js`, `utils/cofid.test.js`, `utils/openFoodFacts.test.js`, `utils/nutritionResolver.test.js`, `utils/dataSchemas.test.js`) — 135 tests, `npm test`
+- **Vitest** unit tests for cycle logic (`utils/schedule.test.js`), goal/metrics pure logic (`utils/goal.js`, `utils/metrics.js`), Progress-tab maths (`utils/progressCalcs.test.js`), and smart food logging (`utils/foodLibrary.test.js`, `utils/cofid.test.js`, `utils/openFoodFacts.test.js`, `utils/nutritionResolver.test.js`, `utils/dataSchemas.test.js`) — 136 tests, `npm test`
 - Test deploy workflow (`npm run deploy:test` → `docs/test/` on master)
 
 ### Known Quirks & Limitations
@@ -428,7 +428,7 @@ The service worker uses a stamped cache name (`pump-YYYYMMDD-HHMMSS`, date **and
 - **Preview server**: Requires manual `cp dist/index.src.html dist/index.html` step after each build — the deploy script handles this for production but not for local preview.
 - **Library/CoFID are never trusted on the committing path** (redesigned 2026-07-07, superseding the earlier `minCoverage` threshold): `resolveNutrition`/`resolveFromPhoto` only ever return a verified barcode-ID lookup or an Open Food Facts text match. A library or CoFID result is used *only* via an explicit tap on the live suggestions dropdown (`searchSuggestions`, still permissive/no floor — a human sees every candidate before choosing). Enter (no tap) skips straight to OFF, then AI. This replaced a coverage-percentage heuristic that kept re-breaking at its own boundary (a 2-word query sharing exactly one word — e.g. "Cumberland Sausage" vs CoFID's "Liver sausage" — sat exactly at the 0.5 threshold and slipped through); rather than keep tuning the number, library/CoFID trust on that path was removed entirely.
 - **Standard-weight conversions are approximations**: the `UNIT_GRAMS` table in `utils/foodLibrary.js` (egg=50g, chicken breast=170g, slice=30g, etc.) is a reasonable default, not the user's actual portion — always editable after logging (tap-to-edit on calories/protein).
-- **Open Food Facts and custom User-Agent**: browsers can't set OFF's requested custom `User-Agent` header — reads still work, but this should be re-verified if OFF lookups start failing in the wild; the resolver falls through to CoFID/AI on any OFF error rather than hard-failing.
+- **Open Food Facts and custom User-Agent**: browsers can't set OFF's requested custom `User-Agent` header — reads still work, but this should be re-verified if OFF lookups start failing in the wild; `resolveNutrition` falls through to AI on any OFF error/empty result rather than hard-failing (observed live: an OFF network failure correctly produced "Configure AI provider" rather than a crash or a wrong silent match).
 
 ### Next Steps / Potential Improvements
 - App rename (current name "Pump" is a placeholder — "Satis" is the leading candidate)
