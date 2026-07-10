@@ -40,7 +40,7 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
   const { schedule, getWorkoutTemplate } = useWorkoutSchedule();
   const { getTodaysWorkout, getAllPRs } = useWorkoutLogs();
   const { getLatestWeight, entries: weightEntries } = useWeightHistory();
-  const { entries: measurementHistory } = useMeasurementHistory();
+  const { entries: measurementHistory, getLatest: getLatestMeasurement } = useMeasurementHistory();
   const { exportData, needsBackupReminder } = useBackup();
   const [completedDays] = useLocalStorage('pump-completed-workouts', {});
 
@@ -261,11 +261,17 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
       <GoalCard profile={profile} data={metricData} />
       <SecondaryMetricStrip profile={profile} data={metricData} />
 
-      {/* Body Stats Summary — Navy is the displayed default; manual shown as small secondary */}
+      {/* Body Stats Summary — Navy is the displayed default; manual shown as small secondary.
+          Prefers the latest measurement-history snapshot over the profile's own
+          waistCircumference/etc. fields (which only reliably reflect onboarding
+          + Settings edits, not WeightModal/MeasurementModal logs) so this can't
+          silently disagree with GoalCard/SecondaryMetricStrip, which already
+          read the history directly. */}
       {(() => {
-        const { value: displayedBF, source } = resolveBodyFat(profile);
-        const navy = getNavyBodyFat(profile);
-        const manual = profile.bodyFatManual ?? profile.bodyFatPercentage;
+        const latestMeasurement = getLatestMeasurement();
+        const { value: displayedBF, source } = resolveBodyFat(profile, latestMeasurement);
+        const navy = getNavyBodyFat(profile, latestMeasurement);
+        const manual = latestMeasurement?.bodyFatManual ?? profile.bodyFatManual ?? profile.bodyFatPercentage;
         const showSecondary = navy && manual && Math.abs(navy - manual) >= 0.5;
         if (!displayedBF) return null;
         return (
@@ -293,8 +299,8 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
               </div>
               <div>
                 <div className="text-lg font-bold text-warning">
-                  {profile.currentWeight && displayedBF
-                    ? Math.round(profile.currentWeight * (1 - displayedBF / 100) * 10) / 10
+                  {currentWeight !== '--' && displayedBF
+                    ? Math.round(currentWeight * (1 - displayedBF / 100) * 10) / 10
                     : '--'}
                 </div>
                 <div className="text-xs text-text-muted">Lean Mass</div>

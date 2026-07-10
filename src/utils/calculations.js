@@ -117,18 +117,26 @@ export function calculateProteinTargets(weight, goal = 'weightLoss') {
 }
 
 /**
- * Compute Navy body fat from a profile object. Returns null if measurements
- * are missing. Standalone helper so display code doesn't have to assemble
- * the args every time.
+ * Compute Navy body fat. Prefers a measurement-history snapshot's
+ * waist/neck/hip (the actual source of truth — what you logged most
+ * recently) over the profile's own waistCircumference/etc. fields, which are
+ * a redundant "current" snapshot that's only reliably kept in sync at
+ * onboarding and via Settings' direct edits. Falls back to the profile
+ * fields when no snapshot (or field within one) is available, so this stays
+ * correct for brand-new profiles with no measurement history yet.
+ *
+ * @param {object} profile
+ * @param {object|null} [latestMeasurement] - most recent entry from
+ *   useMeasurementHistory(), e.g. { waist, neck, hip, bodyFatManual }
  */
-export function getNavyBodyFat(profile) {
+export function getNavyBodyFat(profile, latestMeasurement = null) {
   if (!profile) return null;
   return calculateBodyFatNavy(
     profile.gender,
     profile.height,
-    profile.waistCircumference,
-    profile.neckCircumference,
-    profile.hipCircumference,
+    latestMeasurement?.waist ?? profile.waistCircumference,
+    latestMeasurement?.neck ?? profile.neckCircumference,
+    latestMeasurement?.hip ?? profile.hipCircumference,
   );
 }
 
@@ -139,12 +147,14 @@ export function getNavyBodyFat(profile) {
  * 3. Legacy bodyFatPercentage field (for back-compat)
  *
  * Returns { value, source } where source ∈ 'navy' | 'manual' | 'legacy' | null.
+ * See getNavyBodyFat for the latestMeasurement fallback behaviour.
  */
-export function resolveBodyFat(profile) {
+export function resolveBodyFat(profile, latestMeasurement = null) {
   if (!profile) return { value: null, source: null };
-  const navy = getNavyBodyFat(profile);
+  const navy = getNavyBodyFat(profile, latestMeasurement);
   if (navy && navy > 0 && navy < 60) return { value: navy, source: 'navy' };
-  if (profile.bodyFatManual) return { value: profile.bodyFatManual, source: 'manual' };
+  const manualBF = latestMeasurement?.bodyFatManual ?? profile.bodyFatManual;
+  if (manualBF) return { value: manualBF, source: 'manual' };
   if (profile.bodyFatPercentage) return { value: profile.bodyFatPercentage, source: 'legacy' };
   return { value: null, source: null };
 }

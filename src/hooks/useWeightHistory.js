@@ -1,17 +1,31 @@
 import { useLocalStorageArray } from './useLocalStorage';
 import { createWeightEntry } from '../utils/dataSchemas';
 
+const STORAGE_UPDATE_EVENT = 'local-storage-update';
+const KEY = 'pump-weight-history';
+
 export function useWeightHistory() {
-  const { items: entries, add, clear } = useLocalStorageArray('pump-weight-history', []);
+  const { items: entries, add, setItems, clear } = useLocalStorageArray(KEY, []);
 
   const logWeight = (weight, date = null) => {
     const entry = createWeightEntry(weight, date);
     const existingIndex = entries.findIndex((e) => e.date === entry.date);
 
     if (existingIndex >= 0) {
-      const updated = [...entries];
-      updated[existingIndex] = entry;
-      return updated;
+      // Read fresh from localStorage (not the closure's `entries`) and write
+      // synchronously, same pattern as useLocalStorageArray.add() — a plain
+      // setItems() call alone only persists via a useEffect, which never
+      // fires if the calling component unmounts in the same event handler
+      // (e.g. WeightModal closing itself right after logWeight()).
+      const current = JSON.parse(localStorage.getItem(KEY) || '[]');
+      const idx = current.findIndex((e) => e.date === entry.date);
+      const updated = idx >= 0
+        ? current.map((e, i) => (i === idx ? entry : e))
+        : [...current, entry];
+      localStorage.setItem(KEY, JSON.stringify(updated));
+      window.dispatchEvent(new CustomEvent(STORAGE_UPDATE_EVENT, { detail: { key: KEY } }));
+      setItems(updated);
+      return entry;
     }
     add(entry);
     return entry;

@@ -153,7 +153,7 @@ export default function Coach() {
   const { schedule, setWorkoutForDate, setSchedule } = useWorkoutSchedule();
   const { templates, addExercise, removeExercise, updateExercise, setTemplate } = useWorkoutTemplates();
   const { logWeight, entries: weightHistory } = useWeightHistory();
-  const { logMeasurement } = useMeasurementHistory();
+  const { logMeasurement, entries: measurementHistory } = useMeasurementHistory();
   const [completedDays, setCompletedDays] = useLocalStorage('pump-completed-workouts', {});
   const [memories, setMemories] = useLocalStorage('pump-coach-memories', []);
 
@@ -202,6 +202,11 @@ export default function Coach() {
           executed.push(`✓ Logged meal${dateLabel}: ${cmd.data.totals.calories} kcal, ${cmd.data.totals.protein}g protein`);
         } else if (cmd.type === 'LOG_WEIGHT' && cmd.data.weight) {
           logWeight(cmd.data.weight);
+          // Keep the profile's "current" snapshot in sync too, matching
+          // WeightModal — history is the source of truth Coach itself reads
+          // from, but other surfaces (Settings, useUserProfile helpers) still
+          // read profile.currentWeight directly.
+          updateProfile({ currentWeight: cmd.data.weight });
           executed.push(`✓ Logged weight: ${cmd.data.weight} kg`);
         } else if (cmd.type === 'LOG_MEASUREMENT' && cmd.data && (cmd.data.waist != null || cmd.data.neck != null || cmd.data.hip != null || cmd.data.bodyFatManual != null)) {
           logMeasurement({
@@ -210,6 +215,14 @@ export default function Coach() {
             hip: cmd.data.hip ?? null,
             bodyFatManual: cmd.data.bodyFatManual ?? null,
           });
+          // Same profile-sync as MeasurementModal — only touch fields that
+          // were actually provided.
+          const profileUpdates = {};
+          if (cmd.data.waist != null) profileUpdates.waistCircumference = cmd.data.waist;
+          if (cmd.data.neck != null) profileUpdates.neckCircumference = cmd.data.neck;
+          if (cmd.data.hip != null) profileUpdates.hipCircumference = cmd.data.hip;
+          if (cmd.data.bodyFatManual != null) profileUpdates.bodyFatManual = cmd.data.bodyFatManual;
+          if (Object.keys(profileUpdates).length) updateProfile(profileUpdates);
           const parts = [];
           if (cmd.data.waist != null) parts.push(`waist ${cmd.data.waist}cm`);
           if (cmd.data.neck != null) parts.push(`neck ${cmd.data.neck}cm`);
@@ -474,7 +487,7 @@ export default function Coach() {
     }
 
     try {
-      const context = buildContextFromState(profile, meals, workoutLogs, schedule, weightHistory, completedDays, templates);
+      const context = buildContextFromState(profile, meals, workoutLogs, schedule, weightHistory, completedDays, templates, measurementHistory);
       const systemPrompt = customSystemPrompt
         ? customSystemPrompt
         : buildCoachSystemPrompt(profile, context, context.performance, memories);
@@ -558,8 +571,14 @@ export default function Coach() {
           }
           case 'get_workout_templates':
             return templates || {};
-          case 'get_performance_summary':
-            return buildPerformanceContext(completedDays, weightHistory, meals, schedule, profile);
+          case 'get_performance_summary': {
+            // Resolve current weight from the history log itself, matching
+            // buildContextFromState — don't trust profile.currentWeight alone.
+            const latestW = weightHistory.length
+              ? [...weightHistory].sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+              : null;
+            return buildPerformanceContext(completedDays, weightHistory, meals, schedule, profile, latestW?.weight ?? profile.currentWeight);
+          }
           case 'lookup_nutrition': {
             const { resolveNutrition } = await import('../utils/nutritionResolver');
             const r = await resolveNutrition({ query: input.query, barcode: input.barcode });

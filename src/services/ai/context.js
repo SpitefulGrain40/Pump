@@ -1,5 +1,6 @@
 import { format, parseISO, differenceInDays, subDays, addDays } from 'date-fns';
 import { getCyclePosition, getPhaseLabel, getPhaseLabelByPosition, resolveDaySchedule } from '../../utils/schedule';
+import { getNavyBodyFat } from '../../utils/calculations';
 
 // Build memory section for system prompt
 function formatMemories(memories) {
@@ -104,8 +105,12 @@ function formatTemplates(templates) {
   return lines.length ? lines.join('\n') : null;
 }
 
-// Build performance metrics from historical data
-export function buildPerformanceContext(completedDays, weightHistory, nutritionLogs, schedule, profile) {
+// Build performance metrics from historical data. currentWeight, if given, is
+// the weight-history-resolved value (falls back to profile.currentWeight) —
+// see resolveCurrentWeight below. Keeps weightChangeTotal from silently
+// disagreeing with the weightChange2Weeks figure computed a few lines below,
+// which already reads weightHistory directly.
+export function buildPerformanceContext(completedDays, weightHistory, nutritionLogs, schedule, profile, currentWeight = profile.currentWeight) {
   const today = new Date();
   const twoWeeksAgo = subDays(today, 14);
 
@@ -182,8 +187,8 @@ export function buildPerformanceContext(completedDays, weightHistory, nutritionL
     weightChange2Weeks = recentWeights[0].weight - recentWeights[recentWeights.length - 1].weight;
   }
 
-  const weightChangeTotal = profile.startingWeight && profile.currentWeight
-    ? profile.startingWeight - profile.currentWeight
+  const weightChangeTotal = profile.startingWeight && currentWeight
+    ? profile.startingWeight - currentWeight
     : 0;
 
   // Calculate required vs current rate. Prefer the goal model's weight target,
@@ -191,8 +196,8 @@ export function buildPerformanceContext(completedDays, weightHistory, nutritionL
   const goalWeightTarget = profile.goal?.targets?.weight?.value ?? profile.targetWeight ?? null;
   const goalWeightDate = profile.goal?.targets?.weight?.date ?? profile.targetDate ?? null;
   const daysToGoal = goalWeightDate ? differenceInDays(parseISO(goalWeightDate), today) : null;
-  const weightToLose = profile.currentWeight && goalWeightTarget
-    ? profile.currentWeight - goalWeightTarget
+  const weightToLose = currentWeight && goalWeightTarget
+    ? currentWeight - goalWeightTarget
     : 0;
   const requiredRate = daysToGoal && weightToLose ? (weightToLose / daysToGoal) * 7 : 0;
   const currentRate = recentWeights.length >= 2 ? Math.abs(weightChange2Weeks) / 2 : 0;
@@ -355,8 +360,13 @@ export function buildCoachSystemPrompt(profile, context, performance = null, mem
     return buildOnboardingPrompt(profile);
   }
 
+  // currentWeight/latestMeasurement come from buildContextFromState, which
+  // resolves them from weightHistory/measurementHistory (falling back to the
+  // profile's own fields) — the actual source of truth, not the profile
+  // snapshot alone, which only reliably reflects onboarding + Settings edits.
+  const currentWeight = context.currentWeight ?? profile.currentWeight;
   const daysToGoal = profile.targetDate ? differenceInDays(parseISO(profile.targetDate), new Date()) : null;
-  const weightToLose = profile.currentWeight && profile.targetWeight ? profile.currentWeight - profile.targetWeight : null;
+  const weightToLose = currentWeight && profile.targetWeight ? currentWeight - profile.targetWeight : null;
   const weekType = context.weekType || 'A';
 
   const goal = profile.goal || { intent: 'maintain', primaryMetric: 'weight', targets: {} };
@@ -384,27 +394,19 @@ export function buildCoachSystemPrompt(profile, context, performance = null, mem
 - Gender: ${profile.gender || 'Not specified'}
 - Age: ${profile.age || 'Not specified'}
 - Height: ${profile.height ? profile.height + ' cm' : 'Not specified'}
-- Current Weight: ${profile.currentWeight ? profile.currentWeight + ' kg' : 'Not specified'}
+- Current Weight: ${currentWeight ? currentWeight + ' kg' : 'Not specified'}
 - Target Weight: ${profile.targetWeight ? profile.targetWeight + ' kg' : 'Not specified'}
 - Target Date: ${profile.targetDate ? `${profile.targetDate} (${daysToGoal} days remaining)` : 'Not set'}
 ${weightToLose ? `- Weight to Lose: ${weightToLose.toFixed(1)} kg` : ''}
 ${weightToLose && daysToGoal ? `- Required Rate: ~${((weightToLose / daysToGoal) * 7).toFixed(1)} kg/week` : ''}
 ${(() => {
   // Both body-fat values are exposed so Coach can comment on the gap between
-  // user-entered and Navy-calculated values.
-  const navy = (() => {
-    if (!profile.gender || !profile.height || !profile.waistCircumference || !profile.neckCircumference) return null;
-    if (profile.gender === 'female' && !profile.hipCircumference) return null;
-    const logW = profile.gender === 'male'
-      ? Math.log10(profile.waistCircumference - profile.neckCircumference)
-      : Math.log10(profile.waistCircumference + profile.hipCircumference - profile.neckCircumference);
-    const logH = Math.log10(profile.height);
-    const bf = profile.gender === 'male'
-      ? 495 / (1.0324 - 0.19077 * logW + 0.15456 * logH) - 450
-      : 495 / (1.29579 - 0.35004 * logW + 0.22100 * logH) - 450;
-    return bf > 0 && bf < 60 ? Math.round(bf * 10) / 10 : null;
-  })();
-  const manual = profile.bodyFatManual ?? profile.bodyFatPercentage;
+  // user-entered and Navy-calculated values. Uses the same resolveBodyFat as
+  // the dashboard/progress tab (calculations.js), fed the latest measurement
+  // snapshot so all three surfaces agree — no more independent, drifting
+  // calculations of the same number.
+  const navy = getNavyBodyFat(profile, context.latestMeasurement);
+  const manual = context.latestMeasurement?.bodyFatManual ?? profile.bodyFatManual ?? profile.bodyFatPercentage;
   const parts = [];
   if (navy != null) parts.push(`Navy: ${navy}%`);
   if (manual) parts.push(`Manual: ${manual}%`);
@@ -535,9 +537,22 @@ ${memoriesSection}
 Remember: You can help log meals, suggest workouts, modify exercises for injuries, track progress, and provide nutrition advice. Be the coach that keeps them accountable.`;
 }
 
-export function buildContextFromState(profile, nutritionLogs, workoutLogs, workoutSchedule, weightHistory, completedDays = {}, templates = null) {
+export function buildContextFromState(profile, nutritionLogs, workoutLogs, workoutSchedule, weightHistory, completedDays = {}, templates = null, measurementHistory = []) {
   const today = new Date();
   const todayStr = format(today, 'yyyy-MM-dd');
+
+  // Resolve "current" weight/measurements from the actual history logs
+  // (falling back to the profile's own fields for brand-new profiles with no
+  // history yet), so Coach's view of these values matches what WeightModal/
+  // MeasurementModal actually recorded — not a separately-maintained profile
+  // snapshot that can silently drift from it.
+  const latestWeightEntry = weightHistory.length
+    ? [...weightHistory].sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+    : null;
+  const currentWeight = latestWeightEntry?.weight ?? profile.currentWeight ?? null;
+  const latestMeasurement = measurementHistory.length
+    ? [...measurementHistory].sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+    : null;
 
   const todayMeals = nutritionLogs.filter((m) =>
     format(parseISO(m.timestamp), 'yyyy-MM-dd') === todayStr
@@ -589,7 +604,7 @@ export function buildContextFromState(profile, nutritionLogs, workoutLogs, worko
 
   // Performance snapshot — one-liner for the static prompt.
   // Full detail available via get_performance_summary() tool.
-  const performance = buildPerformanceContext(completedDays, weightHistory, nutritionLogs, workoutSchedule, profile);
+  const performance = buildPerformanceContext(completedDays, weightHistory, nutritionLogs, workoutSchedule, profile, currentWeight);
   // Suppress snapshot for brand-new users — 0 scheduled sessions gives 100% completion
   // which is misleading noise, not useful signal.
   const performanceSnapshot = performance && performance.recentCompletion.scheduled > 0
@@ -605,6 +620,8 @@ export function buildContextFromState(profile, nutritionLogs, workoutLogs, worko
     cycleText: formatCycle(profile),
     performanceSnapshot,
     performance,
+    currentWeight,
+    latestMeasurement,
   };
 }
 

@@ -23,8 +23,11 @@ function migrateWeekTemplatesToCycle(profile) {
   return cycleTemplate;
 }
 
+const PROFILE_KEY = 'pump-user-profile';
+const STORAGE_UPDATE_EVENT = 'local-storage-update';
+
 export function useUserProfile() {
-  const [profile, setProfile, reset] = useLocalStorage('pump-user-profile', DEFAULT_USER_PROFILE);
+  const [profile, setProfile, reset] = useLocalStorage(PROFILE_KEY, DEFAULT_USER_PROFILE);
 
   // One-time migration: legacy weekTemplates → position-based cycleTemplate.
   // Runs once (until cycleTemplate exists), drops weekTemplates afterwards.
@@ -62,8 +65,19 @@ export function useUserProfile() {
     }
   }, [profile.goal, setProfile]);
 
+  // Reads fresh from localStorage and writes synchronously (same pattern as
+  // useLocalStorageArray.add()) rather than relying solely on setProfile's
+  // effect-based persistence. A plain setProfile() alone only writes to
+  // localStorage in a useEffect on the NEXT render of this hook's own
+  // instance — if the caller (e.g. a modal) unmounts itself in the same
+  // synchronous handler (onClose() right after updateProfile()), that
+  // render never happens and the update is silently lost.
   const updateProfile = (updates) => {
-    setProfile((prev) => ({ ...prev, ...updates }));
+    const current = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null') || DEFAULT_USER_PROFILE;
+    const next = { ...current, ...updates };
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent(STORAGE_UPDATE_EVENT, { detail: { key: PROFILE_KEY } }));
+    setProfile(next);
   };
 
   const getDaysToGoal = () => {
