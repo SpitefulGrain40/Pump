@@ -152,7 +152,9 @@ export default function Settings() {
               value={profile.currentWeight}
               onChange={(v) => {
                 const n = parseFloat(v);
-                updateProfile({ currentWeight: n });
+                // Persist null (not NaN) when the field is cleared/partway
+                // through editing, since updateProfile now writes synchronously.
+                updateProfile({ currentWeight: Number.isFinite(n) ? n : null });
                 syncWeight(n);
               }}
             />
@@ -167,7 +169,7 @@ export default function Settings() {
               value={profile.neckCircumference}
               onChange={(v) => {
                 const n = parseFloat(v);
-                updateProfile({ neckCircumference: n });
+                updateProfile({ neckCircumference: Number.isFinite(n) ? n : null });
                 if (Number.isFinite(n)) syncMeasurement({ neck: n });
               }}
             />
@@ -177,7 +179,7 @@ export default function Settings() {
               value={profile.waistCircumference}
               onChange={(v) => {
                 const n = parseFloat(v);
-                updateProfile({ waistCircumference: n });
+                updateProfile({ waistCircumference: Number.isFinite(n) ? n : null });
                 if (Number.isFinite(n)) syncMeasurement({ waist: n });
               }}
             />
@@ -189,7 +191,7 @@ export default function Settings() {
               value={profile.hipCircumference}
               onChange={(v) => {
                 const n = parseFloat(v);
-                updateProfile({ hipCircumference: n });
+                updateProfile({ hipCircumference: Number.isFinite(n) ? n : null });
                 if (Number.isFinite(n)) syncMeasurement({ hip: n });
               }}
             />
@@ -201,7 +203,7 @@ export default function Settings() {
               value={profile.bodyFatManual ?? profile.bodyFatPercentage}
               onChange={(v) => {
                 const n = parseFloat(v);
-                updateProfile({ bodyFatManual: n });
+                updateProfile({ bodyFatManual: Number.isFinite(n) ? n : null });
                 if (Number.isFinite(n)) syncMeasurement({ bodyFatManual: n });
               }}
             />
@@ -598,7 +600,7 @@ function Field({ label, type, value, onChange }) {
       <label className="text-sm text-text-muted block mb-1">{label}</label>
       <input
         type={type}
-        value={value}
+        value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
       />

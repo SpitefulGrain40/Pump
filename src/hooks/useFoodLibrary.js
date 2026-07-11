@@ -4,7 +4,7 @@ import { addOrUpdateFood, touchEntry } from '../utils/foodLibrary';
 import { createSavedMeal } from '../utils/dataSchemas';
 
 export function useFoodLibrary() {
-  const { items, setItems, remove } = useLocalStorageArray('pump-food-library', []);
+  const { items, setItems } = useLocalStorageArray('pump-food-library', []);
 
   const foods = useMemo(() => items.filter((e) => e.kind === 'food'), [items]);
   const meals = useMemo(() => items.filter((e) => e.kind === 'meal'), [items]);
@@ -14,5 +14,5 @@ export function useFoodLibrary() {
     setItems((prev) => [...prev, createSavedMeal({ name, components })]), [setItems]);
   const touch = useCallback((id) => setItems((prev) => touchEntry(prev, id)), [setItems]);
 
-  return { foods, meals, saveFood, saveMeal, removeEntry: remove, touch };
+  return { foods, meals, saveFood, saveMeal, touch };
 }

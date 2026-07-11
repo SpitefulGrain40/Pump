@@ -554,7 +554,7 @@ async function estimateItem(description) {
 // Estimates ONLY the portion quantity (in the food's base unit) from a free-text
 // description — macros stay whatever the DB already resolved, never re-guessed.
 async function estimatePortionQuantity(food, description) {
-  const unitLabel = food.base.unit === 'g' || food.base.unit === 'ml' ? food.base.unit : food.base.unit;
+  const unitLabel = food.base.unit;
   const prompt = `For the food "${food.name}", measured in ${unitLabel}, the user describes their portion as: "${description}". Estimate the quantity in ${unitLabel} that best matches (a whole food is roughly ${food.base.amount} ${unitLabel}, use that as a reference scale). Return ONLY valid JSON — no other text: {"quantity": 123}`;
   const raw = await callTextModel(prompt, { maxTokens: 40 });
   const match = raw.match(/\{[\s\S]*\}/);

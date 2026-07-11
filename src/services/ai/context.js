@@ -360,7 +360,7 @@ export function buildCoachSystemPrompt(profile, context, performance = null, mem
     return buildOnboardingPrompt(profile);
   }
 
-  // currentWeight/latestMeasurement come from buildContextFromState, which
+  // currentWeight/measurementHistory come from buildContextFromState, which
   // resolves them from weightHistory/measurementHistory (falling back to the
   // profile's own fields) — the actual source of truth, not the profile
   // snapshot alone, which only reliably reflects onboarding + Settings edits.
@@ -405,8 +405,9 @@ ${(() => {
   // alongside as a reference so Coach can comment on the gap, same as the
   // dashboard's secondary annotation, without either number silently
   // overriding the other.
-  const navy = getNavyBodyFat(profile, context.measurementHistory);
-  const manual = [...context.measurementHistory]
+  const measurementHistory = context.measurementHistory || [];
+  const navy = getNavyBodyFat(profile, measurementHistory);
+  const manual = [...measurementHistory]
     .filter((e) => e.bodyFatManual != null)
     .sort((a, b) => new Date(b.date) - new Date(a.date))[0]?.bodyFatManual
     ?? profile.bodyFatManual ?? profile.bodyFatPercentage;
