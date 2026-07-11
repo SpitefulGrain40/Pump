@@ -46,46 +46,51 @@ const waist = {
   },
 };
 
-// Body fat for one snapshot: prefer a manual entry, else compute via Navy.
-// Module-level (not a `this`-bound method) so descriptor methods stay safe to
-// destructure or pass around.
-const bodyfatValueFor = (profile, snap) => {
-  if (snap.bodyFatManual != null) return snap.bodyFatManual;
-  return calculateBodyFatNavy(profile.gender, profile.height, snap.waist, snap.neck, snap.hip);
-};
+// Navy body fat for one snapshot. Deliberately Navy-only (ignores any manual
+// reading on the same snapshot) — Navy is the consistent trend baseline, so
+// blending in an occasional DEXA/manual reading would make an ordinary
+// change of measurement method look like a real body-composition jump. See
+// bodyfat.getManualSeries below for surfacing manual readings separately.
+const navyValueFor = (profile, snap) =>
+  calculateBodyFatNavy(profile.gender, profile.height, snap.waist, snap.neck, snap.hip);
 
-// Body fat % for a given date: the most recent snapshot at-or-before `date`
-// that yields a value, else the profile's current resolved body fat.
+// Navy body fat % as of `date`: the most recent snapshot at-or-before it
+// that has waist+neck, else the profile's own resolved body fat.
 const bodyfatForDate = (profile, measurementHistory, date) => {
   const priorSnaps = [...measurementHistory]
-    .filter(s => new Date(s.date) <= new Date(date))
+    .filter(s => new Date(s.date) <= new Date(date) && s.waist != null && s.neck != null)
     .sort((a, b) => new Date(b.date) - new Date(a.date));
-  for (const snap of priorSnaps) {
-    const v = bodyfatValueFor(profile, snap);
+  if (priorSnaps.length) {
+    const v = navyValueFor(profile, priorSnaps[0]);
     if (v != null) return v;
   }
-  return resolveBodyFat(profile).value;
+  return resolveBodyFat(profile, measurementHistory).value;
 };
 
-// --- bodyfat (Navy per snapshot, manual overrides when present) ---
+// --- bodyfat (Navy trend; manual/DEXA readings are a separate reference series) ---
 const bodyfat = {
   key: 'bodyfat',
   label: 'Body Fat',
   unit: '%',
   supportsTarget: true,
   getCurrent(profile, { measurementHistory = [] } = {}) {
-    const sorted = [...measurementHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
-    for (const snap of sorted) {
-      const v = bodyfatValueFor(profile, snap);
-      if (v != null) return v;
-    }
-    return null;
+    return resolveBodyFat(profile, measurementHistory).value;
   },
   getSeries(profile, { measurementHistory = [] } = {}) {
     return [...measurementHistory]
+      .filter(snap => snap.waist != null && snap.neck != null)
       .sort(byDateAsc)
-      .map(snap => ({ date: snap.date, value: bodyfatValueFor(profile, snap) }))
-      .filter(p => p.value != null);
+      .map(snap => ({ date: snap.date, value: navyValueFor(profile, snap) }))
+      .filter(p => p.value != null && p.value > 0 && p.value < 60);
+  },
+  // Manual/DEXA readings as their own series, meant to be plotted as markers
+  // alongside the Navy trend line (not merged into it) — lets you see the
+  // delta between the two methods without disrupting trend consistency.
+  getManualSeries(_profile, { measurementHistory = [] } = {}) {
+    return [...measurementHistory]
+      .filter(snap => snap.bodyFatManual != null)
+      .sort(byDateAsc)
+      .map(snap => ({ date: snap.date, value: snap.bodyFatManual }));
   },
   goodDirection() {
     return 'down';
@@ -158,4 +163,23 @@ export const METRICS = { weight, leanmass, bodyfat, waist, strength };
 
 export function getMetric(key) {
   return METRICS[key] || METRICS.weight;
+}
+
+// Aligns a primary series with an optional reference series (e.g. Navy trend
+// + DEXA/manual markers) onto one shared, date-sorted label set, so a chart
+// can plot both without requiring every date to have both values. Gaps in
+// either series become `null` at that index (Chart.js renders no point
+// there; use spanGaps on the primary line so it doesn't visually break).
+export function alignSeriesWithReference(series, referenceSeries = []) {
+  if (!referenceSeries.length) {
+    return { dates: series.map(p => p.date), seriesData: series.map(p => p.value), referenceData: null };
+  }
+  const dates = [...new Set([...series.map(p => p.date), ...referenceSeries.map(p => p.date)])]
+    .sort((a, b) => new Date(a) - new Date(b));
+  const valueForDate = (points, date) => points.find(p => p.date === date)?.value ?? null;
+  return {
+    dates,
+    seriesData: dates.map(d => valueForDate(series, d)),
+    referenceData: dates.map(d => valueForDate(referenceSeries, d)),
+  };
 }

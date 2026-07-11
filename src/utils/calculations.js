@@ -116,45 +116,77 @@ export function calculateProteinTargets(weight, goal = 'weightLoss') {
   };
 }
 
-/**
- * Compute Navy body fat. Prefers a measurement-history snapshot's
- * waist/neck/hip (the actual source of truth — what you logged most
- * recently) over the profile's own waistCircumference/etc. fields, which are
- * a redundant "current" snapshot that's only reliably kept in sync at
- * onboarding and via Settings' direct edits. Falls back to the profile
- * fields when no snapshot (or field within one) is available, so this stays
- * correct for brand-new profiles with no measurement history yet.
- *
- * @param {object} profile
- * @param {object|null} [latestMeasurement] - most recent entry from
- *   useMeasurementHistory(), e.g. { waist, neck, hip, bodyFatManual }
- */
-export function getNavyBodyFat(profile, latestMeasurement = null) {
-  if (!profile) return null;
-  return calculateBodyFatNavy(
-    profile.gender,
-    profile.height,
-    latestMeasurement?.waist ?? profile.waistCircumference,
-    latestMeasurement?.neck ?? profile.neckCircumference,
-    latestMeasurement?.hip ?? profile.hipCircumference,
-  );
+const byDateDesc = (a, b) => new Date(b.date) - new Date(a.date);
+
+// Most recent measurement-history snapshot that actually has waist+neck
+// (the minimum Navy needs). Falls back to the profile's own fields when no
+// history entry has them, so this stays correct for brand-new profiles.
+function latestNavyInputs(profile, measurementHistory) {
+  const withInputs = [...measurementHistory]
+    .filter((s) => s.waist != null && s.neck != null)
+    .sort(byDateDesc)[0];
+  return {
+    waist: withInputs?.waist ?? profile?.waistCircumference,
+    neck: withInputs?.neck ?? profile?.neckCircumference,
+    hip: withInputs?.hip ?? profile?.hipCircumference,
+    date: withInputs?.date ?? null,
+  };
+}
+
+// Most recent measurement-history snapshot with a manual (DEXA/scan/
+// calipers/smart-scale) reading. Falls back to the profile's own field.
+function latestManualBodyFat(profile, measurementHistory) {
+  const withManual = [...measurementHistory]
+    .filter((s) => s.bodyFatManual != null)
+    .sort(byDateDesc)[0];
+  return {
+    value: withManual?.bodyFatManual ?? profile?.bodyFatManual ?? null,
+    date: withManual?.date ?? null,
+  };
 }
 
 /**
- * Resolve which body fat value to display. Order of preference:
- * 1. Navy method (computed from measurements) — default per user preference
- * 2. Manual entry (DEXA / scan / calipers / smart scale)
+ * Compute Navy body fat from the most recent measurement-history snapshot
+ * that has waist+neck — the actual source of truth (what you logged most
+ * recently), searched across the WHOLE history, not just the latest entry
+ * overall (which might be a manual-only reading with no waist/neck at all).
+ * Falls back to the profile's own waistCircumference/etc. fields when no
+ * history entry has them.
+ *
+ * @param {object} profile
+ * @param {object[]} [measurementHistory] - entries from useMeasurementHistory()
+ */
+export function getNavyBodyFat(profile, measurementHistory = []) {
+  if (!profile) return null;
+  const { waist, neck, hip } = latestNavyInputs(profile, measurementHistory);
+  return calculateBodyFatNavy(profile.gender, profile.height, waist, neck, hip);
+}
+
+/**
+ * Resolve which body fat value to display. Navy is always the baseline when
+ * computable — trend consistency matters more than always showing the
+ * freshest single reading, since Navy and DEXA/manual use different
+ * methodology and blending them into one number would make an ordinary
+ * method switch look like a real body-composition jump. Manual/DEXA
+ * readings are shown as a separate reference (see metrics.js's
+ * bodyfat.getManualSeries, plotted alongside the Navy trend, not merged
+ * into it) rather than ever overriding the main displayed number. Order:
+ * 1. Navy method (computed from the most recent waist+neck measurement)
+ * 2. Manual entry (DEXA / scan / calipers / smart scale) — only when Navy
+ *    genuinely can't be computed (no measurements at all yet)
  * 3. Legacy bodyFatPercentage field (for back-compat)
  *
  * Returns { value, source } where source ∈ 'navy' | 'manual' | 'legacy' | null.
- * See getNavyBodyFat for the latestMeasurement fallback behaviour.
+ *
+ * @param {object} profile
+ * @param {object[]} [measurementHistory] - entries from useMeasurementHistory()
  */
-export function resolveBodyFat(profile, latestMeasurement = null) {
+export function resolveBodyFat(profile, measurementHistory = []) {
   if (!profile) return { value: null, source: null };
-  const navy = getNavyBodyFat(profile, latestMeasurement);
+  const navy = getNavyBodyFat(profile, measurementHistory);
   if (navy && navy > 0 && navy < 60) return { value: navy, source: 'navy' };
-  const manualBF = latestMeasurement?.bodyFatManual ?? profile.bodyFatManual;
-  if (manualBF) return { value: manualBF, source: 'manual' };
+  const manual = latestManualBodyFat(profile, measurementHistory);
+  if (manual.value != null) return { value: manual.value, source: 'manual' };
   if (profile.bodyFatPercentage) return { value: profile.bodyFatPercentage, source: 'legacy' };
   return { value: null, source: null };
 }

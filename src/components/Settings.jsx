@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import { useSettings, useBackup } from '../hooks/useSettings';
 import { useUserProfile } from '../hooks/useUserProfile';
+import { useWeightHistory } from '../hooks/useWeightHistory';
+import { useMeasurementHistory } from '../hooks/useMeasurementHistory';
 import { testConnection } from '../services/ai';
 import { INTENTS, PRIMARY_METRICS, INTENT_LABELS, INTENT_DESCRIPTIONS, DEFAULT_METRIC_FOR_INTENT } from '../utils/goal';
 import { getMetric } from '../utils/metrics';
@@ -12,7 +14,29 @@ import { getMetric } from '../utils/metrics';
 export default function Settings() {
   const { aiSettings, updateAISettings, isConfigured } = useSettings();
   const { profile, updateProfile } = useUserProfile();
+  const { logWeight } = useWeightHistory();
+  const { logMeasurement } = useMeasurementHistory();
   const { exportData, importData, clearAllData } = useBackup();
+
+  // Settings edits used to only touch the profile snapshot, never the
+  // history logs — so once Dashboard/GoalCard/Coach started preferring
+  // history (the real source of truth) over the profile snapshot, a
+  // Settings-only edit got silently shadowed by whatever older history
+  // entry already existed. These also write to history, matching what
+  // WeightModal/MeasurementModal do, so Settings is a genuine third entry
+  // point into the same system rather than a disconnected one. Merges with
+  // the current profile's other fields so editing just waist doesn't wipe
+  // out an already-logged neck/hip/bodyFatManual for today.
+  const syncWeight = (n) => { if (Number.isFinite(n)) logWeight(n); };
+  const syncMeasurement = (overrides) => {
+    logMeasurement({
+      waist: profile.waistCircumference ?? null,
+      neck: profile.neckCircumference ?? null,
+      hip: profile.hipCircumference ?? null,
+      bodyFatManual: profile.bodyFatManual ?? null,
+      ...overrides,
+    });
+  };
 
   const goal = profile.goal || { intent: 'maintain', primaryMetric: 'weight', targets: { weight: {}, leanmass: {}, bodyfat: {}, waist: {} } };
   const setIntent = (intent) => updateProfile({ goal: { ...goal, intent, primaryMetric: DEFAULT_METRIC_FOR_INTENT[intent] || goal.primaryMetric } });
@@ -126,7 +150,11 @@ export default function Settings() {
               label="Current Weight (kg)"
               type="number"
               value={profile.currentWeight}
-              onChange={(v) => updateProfile({ currentWeight: parseFloat(v) })}
+              onChange={(v) => {
+                const n = parseFloat(v);
+                updateProfile({ currentWeight: n });
+                syncWeight(n);
+              }}
             />
           </div>
 
@@ -137,13 +165,21 @@ export default function Settings() {
               label="Neck (cm)"
               type="number"
               value={profile.neckCircumference}
-              onChange={(v) => updateProfile({ neckCircumference: parseFloat(v) })}
+              onChange={(v) => {
+                const n = parseFloat(v);
+                updateProfile({ neckCircumference: n });
+                if (Number.isFinite(n)) syncMeasurement({ neck: n });
+              }}
             />
             <Field
               label="Waist (cm)"
               type="number"
               value={profile.waistCircumference}
-              onChange={(v) => updateProfile({ waistCircumference: parseFloat(v) })}
+              onChange={(v) => {
+                const n = parseFloat(v);
+                updateProfile({ waistCircumference: n });
+                if (Number.isFinite(n)) syncMeasurement({ waist: n });
+              }}
             />
           </div>
           {profile.gender === 'female' && (
@@ -151,7 +187,11 @@ export default function Settings() {
               label="Hips (cm)"
               type="number"
               value={profile.hipCircumference}
-              onChange={(v) => updateProfile({ hipCircumference: parseFloat(v) })}
+              onChange={(v) => {
+                const n = parseFloat(v);
+                updateProfile({ hipCircumference: n });
+                if (Number.isFinite(n)) syncMeasurement({ hip: n });
+              }}
             />
           )}
           <div className="grid grid-cols-2 gap-3">
@@ -159,7 +199,11 @@ export default function Settings() {
               label="Body Fat % (manual)"
               type="number"
               value={profile.bodyFatManual ?? profile.bodyFatPercentage}
-              onChange={(v) => updateProfile({ bodyFatManual: parseFloat(v) })}
+              onChange={(v) => {
+                const n = parseFloat(v);
+                updateProfile({ bodyFatManual: n });
+                if (Number.isFinite(n)) syncMeasurement({ bodyFatManual: n });
+              }}
             />
             <Field
               label="TDEE"
@@ -169,7 +213,7 @@ export default function Settings() {
             />
           </div>
           <p className="text-xs text-text-muted -mt-2">
-            Manual field is for DEXA / smart-scale / calipers. Coach also computes Navy method from neck/waist{profile.gender === 'female' ? '/hips' : ''} measurements automatically.
+            Navy method (computed automatically from neck/waist{profile.gender === 'female' ? '/hips' : ''}) is always the tracked body fat number, so your trend stays consistent. The manual field (DEXA / smart-scale / calipers) appears as a separate reference point on the chart — it won't override Navy, so you can see the delta between the two.
           </p>
 
           {/* Goals */}

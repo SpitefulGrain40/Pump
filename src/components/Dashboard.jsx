@@ -40,7 +40,7 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
   const { schedule, getWorkoutTemplate } = useWorkoutSchedule();
   const { getTodaysWorkout, getAllPRs } = useWorkoutLogs();
   const { getLatestWeight, entries: weightEntries } = useWeightHistory();
-  const { entries: measurementHistory, getLatest: getLatestMeasurement } = useMeasurementHistory();
+  const { entries: measurementHistory } = useMeasurementHistory();
   const { exportData, needsBackupReminder } = useBackup();
   const [completedDays] = useLocalStorage('pump-completed-workouts', {});
 
@@ -261,18 +261,21 @@ export default function Dashboard({ onNavigate, onOpenCoach }) {
       <GoalCard profile={profile} data={metricData} />
       <SecondaryMetricStrip profile={profile} data={metricData} />
 
-      {/* Body Stats Summary — Navy is the displayed default; manual shown as small secondary.
-          Prefers the latest measurement-history snapshot over the profile's own
-          waistCircumference/etc. fields (which only reliably reflect onboarding
-          + Settings edits, not WeightModal/MeasurementModal logs) so this can't
-          silently disagree with GoalCard/SecondaryMetricStrip, which already
-          read the history directly. */}
+      {/* Body Stats Summary — Navy is always the main number when computable
+          (trend consistency; see calculations.js), manual/DEXA shown as a
+          small secondary annotation. Reads the full measurement history (not
+          just profile.waistCircumference/etc, which only reliably reflects
+          onboarding + Settings edits) so this can't silently disagree with
+          GoalCard/SecondaryMetricStrip, which already read history directly. */}
       {(() => {
-        const latestMeasurement = getLatestMeasurement();
-        const { value: displayedBF, source } = resolveBodyFat(profile, latestMeasurement);
-        const navy = getNavyBodyFat(profile, latestMeasurement);
-        const manual = latestMeasurement?.bodyFatManual ?? profile.bodyFatManual ?? profile.bodyFatPercentage;
-        const showSecondary = navy && manual && Math.abs(navy - manual) >= 0.5;
+        const { value: displayedBF, source } = resolveBodyFat(profile, measurementHistory);
+        const navy = getNavyBodyFat(profile, measurementHistory);
+        const latestManual = [...measurementHistory]
+          .filter((e) => e.bodyFatManual != null)
+          .sort((a, b) => new Date(b.date) - new Date(a.date))[0]?.bodyFatManual
+          ?? profile.bodyFatManual ?? profile.bodyFatPercentage;
+        const showSecondary = navy && latestManual && Math.abs(navy - latestManual) >= 0.5;
+        const manual = latestManual;
         if (!displayedBF) return null;
         return (
           <div className="bg-surface rounded-xl p-4">

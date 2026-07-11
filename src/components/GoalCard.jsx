@@ -1,7 +1,7 @@
 import { Line } from 'react-chartjs-2';
 import { differenceInDays, parseISO, format } from 'date-fns';
 import { Target } from 'lucide-react';
-import { getMetric } from '../utils/metrics';
+import { getMetric, alignSeriesWithReference } from '../utils/metrics';
 import { getGoalProgress } from '../utils/goal';
 import { INTENT_LABELS } from '../utils/goal';
 
@@ -38,21 +38,39 @@ export default function GoalCard({ profile, data }) {
 
   const daysLeft = targetDate ? differenceInDays(parseISO(targetDate), new Date()) : null;
 
+  // Manual/DEXA readings (bodyfat only) plotted as markers alongside the Navy
+  // trend line, not blended into it — see metrics.js's getManualSeries.
+  const manualSeries = metric.getManualSeries ? metric.getManualSeries(profile, data).slice(-14) : [];
+  const { dates, seriesData, referenceData } = alignSeriesWithReference(last, manualSeries);
+
   const chartData = {
-    labels: last.map(p => format(parseISO(p.date), 'MMM d')),
+    labels: dates.map(d => format(parseISO(d), 'MMM d')),
     datasets: [
       {
         label: metric.label,
-        data: last.map(p => p.value),
+        data: seriesData,
         borderColor: '#22c55e',
         backgroundColor: 'rgba(34,197,94,0.1)',
         fill: true,
         tension: 0.3,
         pointRadius: 3,
         pointBackgroundColor: '#22c55e',
+        spanGaps: true,
       },
+      ...(referenceData
+        ? [{
+            label: 'DEXA / manual',
+            data: referenceData,
+            borderColor: '#a855f7',
+            backgroundColor: '#a855f7',
+            showLine: false,
+            pointStyle: 'rectRot',
+            pointRadius: 6,
+            pointHoverRadius: 7,
+          }]
+        : []),
       ...(targetValue != null
-        ? [{ label: 'Target', data: last.map(() => targetValue), borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0 }]
+        ? [{ label: 'Target', data: dates.map(() => targetValue), borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0 }]
         : []),
     ],
   };

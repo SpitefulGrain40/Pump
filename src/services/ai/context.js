@@ -400,13 +400,16 @@ export function buildCoachSystemPrompt(profile, context, performance = null, mem
 ${weightToLose ? `- Weight to Lose: ${weightToLose.toFixed(1)} kg` : ''}
 ${weightToLose && daysToGoal ? `- Required Rate: ~${((weightToLose / daysToGoal) * 7).toFixed(1)} kg/week` : ''}
 ${(() => {
-  // Both body-fat values are exposed so Coach can comment on the gap between
-  // user-entered and Navy-calculated values. Uses the same resolveBodyFat as
-  // the dashboard/progress tab (calculations.js), fed the latest measurement
-  // snapshot so all three surfaces agree — no more independent, drifting
-  // calculations of the same number.
-  const navy = getNavyBodyFat(profile, context.latestMeasurement);
-  const manual = context.latestMeasurement?.bodyFatManual ?? profile.bodyFatManual ?? profile.bodyFatPercentage;
+  // Navy is the trend baseline (see calculations.js) — matches what the
+  // dashboard/Progress tab display as the main number. Manual/DEXA is shown
+  // alongside as a reference so Coach can comment on the gap, same as the
+  // dashboard's secondary annotation, without either number silently
+  // overriding the other.
+  const navy = getNavyBodyFat(profile, context.measurementHistory);
+  const manual = [...context.measurementHistory]
+    .filter((e) => e.bodyFatManual != null)
+    .sort((a, b) => new Date(b.date) - new Date(a.date))[0]?.bodyFatManual
+    ?? profile.bodyFatManual ?? profile.bodyFatPercentage;
   const parts = [];
   if (navy != null) parts.push(`Navy: ${navy}%`);
   if (manual) parts.push(`Manual: ${manual}%`);
@@ -541,18 +544,17 @@ export function buildContextFromState(profile, nutritionLogs, workoutLogs, worko
   const today = new Date();
   const todayStr = format(today, 'yyyy-MM-dd');
 
-  // Resolve "current" weight/measurements from the actual history logs
-  // (falling back to the profile's own fields for brand-new profiles with no
-  // history yet), so Coach's view of these values matches what WeightModal/
-  // MeasurementModal actually recorded — not a separately-maintained profile
-  // snapshot that can silently drift from it.
+  // Resolve "current" weight from the actual history log (falling back to
+  // the profile's own field for brand-new profiles with no history yet), so
+  // Coach's view matches what WeightModal/MeasurementModal/Settings actually
+  // recorded — not a separately-maintained profile snapshot that can
+  // silently drift from it. measurementHistory itself is passed through
+  // below so getNavyBodyFat can search the full history (a manual-only
+  // latest entry shouldn't hide an older, still-valid waist/neck snapshot).
   const latestWeightEntry = weightHistory.length
     ? [...weightHistory].sort((a, b) => new Date(b.date) - new Date(a.date))[0]
     : null;
   const currentWeight = latestWeightEntry?.weight ?? profile.currentWeight ?? null;
-  const latestMeasurement = measurementHistory.length
-    ? [...measurementHistory].sort((a, b) => new Date(b.date) - new Date(a.date))[0]
-    : null;
 
   const todayMeals = nutritionLogs.filter((m) =>
     format(parseISO(m.timestamp), 'yyyy-MM-dd') === todayStr
@@ -621,7 +623,7 @@ export function buildContextFromState(profile, nutritionLogs, workoutLogs, worko
     performanceSnapshot,
     performance,
     currentWeight,
-    latestMeasurement,
+    measurementHistory,
   };
 }
 

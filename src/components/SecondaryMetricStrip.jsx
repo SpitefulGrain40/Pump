@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import { format, parseISO } from 'date-fns';
-import { METRICS, getMetric } from '../utils/metrics';
+import { METRICS, getMetric, alignSeriesWithReference } from '../utils/metrics';
 
 const miniOptions = {
   responsive: true,
@@ -44,17 +44,35 @@ export default function SecondaryMetricStrip({ profile, data }) {
       {expanded && (() => {
         const metric = getMetric(expanded);
         const series = metric.getSeries(profile, data).slice(-14);
+        // Manual/DEXA readings (bodyfat only) as markers alongside the Navy
+        // trend line — see metrics.js's getManualSeries.
+        const manualSeries = metric.getManualSeries ? metric.getManualSeries(profile, data).slice(-14) : [];
+        const { dates, seriesData, referenceData } = alignSeriesWithReference(series, manualSeries);
         const chartData = {
-          labels: series.map(p => format(parseISO(p.date), 'MMM d')),
-          datasets: [{
-            label: metric.label,
-            data: series.map(p => p.value),
-            borderColor: '#22c55e',
-            backgroundColor: 'rgba(34,197,94,0.1)',
-            fill: true,
-            tension: 0.3,
-            pointRadius: 2,
-          }],
+          labels: dates.map(d => format(parseISO(d), 'MMM d')),
+          datasets: [
+            {
+              label: metric.label,
+              data: seriesData,
+              borderColor: '#22c55e',
+              backgroundColor: 'rgba(34,197,94,0.1)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 2,
+              spanGaps: true,
+            },
+            ...(referenceData
+              ? [{
+                  label: 'DEXA / manual',
+                  data: referenceData,
+                  borderColor: '#a855f7',
+                  backgroundColor: '#a855f7',
+                  showLine: false,
+                  pointStyle: 'rectRot',
+                  pointRadius: 5,
+                }]
+              : []),
+          ],
         };
         return (
           <div className="bg-surface rounded-lg p-3">
