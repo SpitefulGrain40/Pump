@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pump-20260710-220725-test';
+const CACHE_NAME = 'pump-20260711-154253-test';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
